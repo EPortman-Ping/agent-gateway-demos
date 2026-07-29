@@ -37,7 +37,7 @@ Supply Chain Tool (Cloud Run) ── MCP server, `restock` tool
 | Service | Where | What it does |
 |---|---|---|
 | `services/agent` | Cloud Run | CRM agent — MCP client, calls the `restock` tool through the gateway, never touches credentials |
-| `services/extension-service` | Cloud Run (gRPC) | ext_proc handler — validates identity, calls IdP for token exchange |
+| `services/agent-gateway-extension-service` | Cloud Run (gRPC) | ext_proc handler — validates identity, calls IdP for token exchange |
 | `services/supply-chain-mcp-tool` | Cloud Run | MCP server (`restock` tool) — validates the Bearer token injected by the gateway |
 | `infra/` | Terraform | **Only** the Agent Gateway + traffic extension |
 
@@ -95,7 +95,7 @@ The extension service performs an RFC 8693 token exchange: it presents the verif
 
 4. **Assign the tool resource.** On the **Resources** tab, add the `supply-chain-mcp-tool` resource so this client is allowed to request the `supply-chain:restock` scope.
 
-5. **Copy the credentials** into `services/extension-service/.env` (step 2.2):
+5. **Copy the credentials** into `services/agent-gateway-extension-service/.env` (step 2.2):
    - **Client ID** → `IDP_CLIENT_ID`
    - **Client Secret** → `IDP_CLIENT_SECRET`
    - Environment token endpoint (`https://auth.pingone.<region>/<env-id>/as/token`) → `IDP_TOKEN_ENDPOINT`
@@ -104,7 +104,7 @@ The extension service performs an RFC 8693 token exchange: it presents the verif
 #### 2.2. Deploy the extension service
 
 ```bash
-cd services/extension-service
+cd services/agent-gateway-extension-service
 cp .env.sample .env          # set IDP_TOKEN_ENDPOINT / IDP_CLIENT_ID / IDP_CLIENT_SECRET / IDP_AUDIENCE
 make deploy                  # creates ext-svc SA, stores the IdP secret in Secret Manager, deploys
 cd ../..
@@ -115,7 +115,7 @@ cd ../..
 The traffic extension needs the extension service's deployed URL, so this runs after step 2.
 
 ```bash
-make gateway EXT_SVC_URI=$(gcloud run services describe extension-service \
+make gateway EXT_SVC_URI=$(gcloud run services describe baatt-agent-gateway-extension-service \
     --region us-central1 --format 'value(status.url)')
 ```
 
@@ -125,14 +125,14 @@ Note the `agent_gateway_url` output — it goes into the agent's `.env` in step 
 
 #### 4.1. Authorize the agent in the policy store
 
-Add the CRM agent's service account to `allowedAgents` in `services/extension-service/main.go`, then re-deploy the extension service so it takes effect:
+Add the CRM agent's service account to `allowedAgents` in `services/agent-gateway-extension-service/main.go`, then re-deploy the extension service so it takes effect:
 ```go
 var allowedAgents = map[string][]string{
     "crm-agent@your-project.iam.gserviceaccount.com": {"supply-chain:restock"},
 }
 ```
 ```bash
-make deploy-extension-service
+make deploy-agent-gateway-extension-service
 ```
 
 #### 4.2. Deploy the agent and register it
@@ -140,7 +140,7 @@ make deploy-extension-service
 Deploy the agent (creates its SA, deploys, and grants it invoke access on the tool):
 ```bash
 cd services/agent
-cp .env.sample .env          # set AGENT_GATEWAY_URL to the gateway URL from step 3
+cp .env.sample .env          # set AGENT_GATEWAY_URL (gateway URL from step 3); GC_* default to the baatt- names
 make deploy
 cd ../..
 ```
@@ -150,7 +150,7 @@ Then register it in **Agent Platform → Registry → Add Agent**:
 - **Type** — `A2A` (or `Non-A2A` for a plain HTTP agent)
 - **Name** — `crm-agent`
 - **Description** — e.g. "CRM restock agent (demo)"
-- **Endpoint** — the agent's Cloud Run URL (`gcloud run services describe crm-agent --region us-central1 --format 'value(status.url)'`)
+- **Endpoint** — the agent's Cloud Run URL (`gcloud run services describe baatt-crm-agent --region us-central1 --format 'value(status.url)'`)
 
 ### 5. Run the demo
 
@@ -184,8 +184,8 @@ make destroy
 The Cloud Run services, service accounts, and secret were created with gcloud, so remove them the same way:
 
 ```bash
-gcloud run services delete crm-agent extension-service supply-chain-mcp-tool --region us-central1
+gcloud run services delete baatt-crm-agent baatt-agent-gateway-extension-service baatt-supply-chain-mcp-tool --region us-central1
 gcloud secrets delete idp-client-secret
-for sa in crm-agent ext-svc supply-chain-mcp-tool; do \
+for sa in crm-agent ext-svc baatt-supply-chain-mcp-tool; do \
   gcloud iam service-accounts delete $sa@$(gcloud config get-value project).iam.gserviceaccount.com; done
 ```
