@@ -1,0 +1,27 @@
+# Secrets — real env files (samples are committed)
+.env
+*.env
+!*.env.sample
+
+# AI tooling
+.claude/
+CLAUDE.md
+.playwright-mcp/
+
+# Go — compiled service binaries (named after their module directory)
+services/*/agent-gateway-extension-service
+services/*/supply-chain-mcp-tool
+**/services/agent-gateway-extension-service/agent-gateway-extension-service
+**/services/supply-chain-mcp-tool/supply-chain-mcp-tool
+
+# Python
+.venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# Local scratch
+*.local.yaml
+authz-ext.yaml
+authz-policy.yaml
