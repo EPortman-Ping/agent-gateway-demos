@@ -1,4 +1,4 @@
-"""Deploy the CRM ADK agent to Agent Runtime, bound to the Agent Gateway."""
+"""Deploy the OBO ADK agent to Agent Runtime, bound to the Agent Gateway."""
 
 import os
 import subprocess
@@ -21,6 +21,10 @@ REGION = os.environ["GC_REGION"]
 TOOL_MCP_URL = os.environ["TOOL_MCP_URL"]
 AGENT_GATEWAY = os.environ["GC_AGENT_GATEWAY"]
 AGENT_DISPLAY_NAME = os.environ["AGENT_DISPLAY_NAME"]
+AGENT_IDP_TOKEN_ENDPOINT = os.environ["AGENT_IDP_TOKEN_ENDPOINT"]
+AGENT_IDP_CLIENT_ID = os.environ["AGENT_IDP_CLIENT_ID"]
+AGENT_IDP_CLIENT_SECRET = os.environ["AGENT_IDP_CLIENT_SECRET"]
+AGENT_IDP_SCOPE = os.environ.get("AGENT_IDP_SCOPE", "")
 
 
 def staging_bucket() -> str:
@@ -74,6 +78,7 @@ def grant_egress(resource_name: str) -> None:
 client = agentplatform.Client(project=PROJECT_ID, location=REGION)
 app = agent_engines.AdkApp(agent=root_agent)
 
+# Retry creation — after a teardown the gateway binding takes time to release.
 _config = {
     "requirements": [
         "google-cloud-aiplatform[agent_engines,adk]>=1.126.1",
@@ -96,12 +101,10 @@ _config = {
     "env_vars": {
         "TOOL_MCP_URL": TOOL_MCP_URL,
         "GOOGLE_API_PREVENT_AGENT_TOKEN_SHARING_FOR_GCP_SERVICES": "false",
-        **{k: os.environ[k] for k in (
-            "AGENT_IDP_TOKEN_ENDPOINT",
-            "AGENT_IDP_CLIENT_ID",
-            "AGENT_IDP_CLIENT_SECRET",
-            "AGENT_IDP_SCOPE",
-        )},
+        "AGENT_IDP_TOKEN_ENDPOINT": AGENT_IDP_TOKEN_ENDPOINT,
+        "AGENT_IDP_CLIENT_ID": AGENT_IDP_CLIENT_ID,
+        "AGENT_IDP_CLIENT_SECRET": AGENT_IDP_CLIENT_SECRET,
+        "AGENT_IDP_SCOPE": AGENT_IDP_SCOPE,
     },
 }
 
