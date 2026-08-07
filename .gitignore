@@ -13,6 +13,14 @@ services/*/agent-gateway-extension-service
 services/*/supply-chain-mcp-tool
 **/services/agent-gateway-extension-service/agent-gateway-extension-service
 **/services/supply-chain-mcp-tool/supply-chain-mcp-tool
+**/services/agent-gateway-extension-service/obo-agent-gateway-extension-service
+**/services/stripe-mcp-server/stripe-mcp-server
+
+# Node
+node_modules/
+**/node_modules/
+dist/
+**/dist/
 
 # Python
 .venv/
