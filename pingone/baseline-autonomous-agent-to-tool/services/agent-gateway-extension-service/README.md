@@ -2,10 +2,10 @@
 
 An Envoy `ext_proc` gRPC handler that the Agent Gateway calls on every request on the governed path. Deployed on Cloud Run, registered as a Service Extension.
 
-For requests bound to the MCP tool it:
-1. Asks PingOne Authorize for a PERMIT/DENY decision
-2. Performs a PingOne delegation exchange on PERMIT
-3. Injects the exchanged token and passes request through to MCP server
+For requests bound to the supply chain MCP tool it:
+1. Validates the agent's delegated token: `iss`, `aud`, and `scope`
+2. On `tools/call` requests, calls PingOne Authorize with compound attributes; non-`tools/call` requests (initialize, tools/list) skip Authorize
+3. On PERMIT, performs an RFC 8693 exchange to produce a tool-audienced token, then injects it as `Authorization: Bearer` before forwarding the request to the supply chain MCP tool
 
 ## Configure
 
@@ -76,7 +76,8 @@ cp .env.sample .env
 | `IDP_TOKEN_ENDPOINT` | `https://auth.pingone.<region>/<env-id>/as/token` |
 | `IDP_CLIENT_ID` | Token-exchange worker app Client ID |
 | `IDP_CLIENT_SECRET` | Token-exchange worker app Client Secret |
-| `IDP_SCOPE` | `supply-chain:restock` |
+| `IDP_SCOPE` | Scope the inbound token must carry, e.g. `supply-chain:restock` |
+| `IDP_REQUIRED_AUDIENCE` | Expected `aud` on the inbound token, e.g. `supply-chain-mcp-tool` |
 | `TOOL_URL` | The MCP tool's Cloud Run base URL |
 | `AUTHZ_DECISION_ENDPOINT` | PingOne Authorize decision endpoint URL |
 | `AUTHZ_CLIENT_ID` | Authorize worker app Client ID |

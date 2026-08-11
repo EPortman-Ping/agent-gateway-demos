@@ -1,6 +1,8 @@
 # Baseline Autonomous Agent to Tool
 
-A CRM agent restocks inventory by calling an external supply-chain [MCP](https://modelcontextprotocol.io/docs/2026-07-28/getting-started/intro) tool - but it never holds a credential for that tool. Its egress is routed through the [GCP Agent Gateway](https://docs.cloud.google.com/gemini-enterprise-agent-platform/govern/gateways/agent-gateway-overview), which hands each request to an extension service over [Envoy External Processing (ext_proc)](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/ext_proc_filter). That service asks [PingOne Authorize](https://www.pingidentity.com/en/product/pingone-authorize.html) for a PERMIT/DENY decision, and on PERMIT exchanges the agent's own token for one scoped to the downstream tool, injecting it into the request.
+A CRM agent restocks inventory by calling an external supply-chain [MCP](https://modelcontextprotocol.io/docs/2026-07-28/getting-started/intro) tool — but it never holds a credential for that tool.
+
+Every MCP request is intercepted by the [GCP Agent Gateway](https://docs.cloud.google.com/gemini-enterprise-agent-platform/govern/gateways/agent-gateway-overview), which calls an extension service via [Envoy ext_proc](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/ext_proc_filter). The extension service validates the agent's token, then asks [PingOne Authorize](https://www.pingidentity.com/en/product/pingone-authorize.html) whether this agent is allowed to call this tool with this quantity at this time. On PERMIT, it performs an [RFC 8693 token exchange](https://docs.pingidentity.com/pingone/use_cases/p1_oauth_2_token_exchange_delegation.html) — minting a short-lived token scoped specifically to the supply-chain tool — and injects it before the request is forwarded.
 
 ## Architecture
 
@@ -69,12 +71,10 @@ Watch the logs light up in sequence:
 
 ## When to use this pattern
 
-This is the baseline for giving an autonomous agent access to a protected tool without embedding tool credentials in the agent. The agent proves only its own identity; the gateway is the single point where authorization is decided and a scoped, short-lived token is minted per request. This gives you:
+Use this pattern when an autonomous agent needs to call a protected tool but should not hold a standing credential for it. The agent proves only its own identity; the gateway is where authorization is decided and a scoped, short-lived token is minted per request. This gives you:
 
-- **No standing tool credentials in the agent.** A compromised agent cannot leak a token that works against the tool, because it never holds one.
-- **Centralized, external authorization.** PingOne Authorize makes the PERMIT/DENY decision and the extension service fails closed, so policy lives in one auditable place and changes without redeploying the agent.
-- **Least privilege.** Each token is scoped to a single tool, expires quickly, and carries the agent's delegated identity through to the tool.
+- **No standing tool credentials in the agent.** The agent never holds a token that works against the tool — a compromised agent cannot leak one.
+- **Centralized policy.** PingOne Authorize owns the PERMIT/DENY decision and the extension service fails closed. Policy changes without redeploying the agent.
+- **Least privilege.** Each token is scoped to a single tool, expires quickly, and carries the agent's identity to the tool for attribution.
 
-Reach for it when tools enforce their own OAuth/JWT auth, when a security team must govern which agents reach which tools from central policy, or when authorization should be tied to the agent's identity rather than a shared key.
-
-This journey is also the foundation for the on-behalf-of-user and multi-agent chaining patterns, which extend the same delegation model to carry a user's or another agent's identity through the exchange.
+This is the foundation for the [on-behalf-of-user](../agent-on-behalf-of-user) pattern, which extends the same model to carry a human user's identity through the exchange.

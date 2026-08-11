@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const pingOneMgmtScope = "p1:read:user"
+
 // pingoneUserResolver resolves a PingOne user's email address from their sub
 // claim using the PingOne management API. It uses the extension service's own
 // client_credentials token (same credentials as the IDP exchange) and caches
@@ -91,7 +93,7 @@ func (r *pingoneUserResolver) refreshMgmtToken() (string, error) {
 	tok, expiresIn, err := fetchToken(r.tokenEndpoint, r.clientID, r.clientSecret,
 		url.Values{
 			"grant_type": {"client_credentials"},
-			"scope":      {"p1:read:user"},
+			"scope":      {pingOneMgmtScope},
 		})
 	if err != nil {
 		return "", err

@@ -12,7 +12,6 @@ require-env:
 	@test -n "$(GC_REGION)"                 || { echo "GC_REGION not set — fill in .env (copy from .env.sample)"; exit 1; }
 	@test -n "$(IDP_ISSUER)"                || { echo "IDP_ISSUER not set — fill in .env (copy from .env.sample)"; exit 1; }
 	@test -n "$(IDP_REQUIRED_AUDIENCE)"     || { echo "IDP_REQUIRED_AUDIENCE not set — fill in .env (copy from .env.sample)"; exit 1; }
-	@test -n "$(IDP_JWKS_URL)"              || { echo "IDP_JWKS_URL not set — fill in .env (copy from .env.sample)"; exit 1; }
 	@test -n "$(IDP_REQUIRED_SCOPE)"        || { echo "IDP_REQUIRED_SCOPE not set — fill in .env (copy from .env.sample)"; exit 1; }
 
 build:
@@ -35,4 +34,4 @@ deploy: require-env setup push
 		--allow-unauthenticated \
 		--ingress=all \
 		--port 8080 \
-		--set-env-vars "IDP_ISSUER=$(IDP_ISSUER),IDP_REQUIRED_AUDIENCE=$(IDP_REQUIRED_AUDIENCE),IDP_JWKS_URL=$(IDP_JWKS_URL),IDP_REQUIRED_SCOPE=$(IDP_REQUIRED_SCOPE)"
+		--set-env-vars "IDP_ISSUER=$(IDP_ISSUER),IDP_REQUIRED_AUDIENCE=$(IDP_REQUIRED_AUDIENCE),IDP_REQUIRED_SCOPE=$(IDP_REQUIRED_SCOPE)"

@@ -17,6 +17,7 @@ require-env:
 	@test -n "$(IDP_CLIENT_ID)"             || { echo "IDP_CLIENT_ID not set — fill in .env (copy from .env.sample)"; exit 1; }
 	@test -n "$(IDP_CLIENT_SECRET)"         || { echo "IDP_CLIENT_SECRET not set — fill in .env (copy from .env.sample)"; exit 1; }
 	@test -n "$(IDP_SCOPE)"                 || { echo "IDP_SCOPE not set — fill in .env (copy from .env.sample)"; exit 1; }
+	@test -n "$(IDP_REQUIRED_AUDIENCE)"     || { echo "IDP_REQUIRED_AUDIENCE not set — fill in .env (copy from .env.sample)"; exit 1; }
 	@test -n "$(TOOL_URL)"                  || { echo "TOOL_URL not set — fill in .env (copy from .env.sample)"; exit 1; }
 	@test -n "$(AUTHZ_DECISION_ENDPOINT)"   || { echo "AUTHZ_DECISION_ENDPOINT not set — fill in .env (copy from .env.sample)"; exit 1; }
 	@test -n "$(AUTHZ_CLIENT_ID)"           || { echo "AUTHZ_CLIENT_ID not set — fill in .env (copy from .env.sample)"; exit 1; }
@@ -55,5 +56,5 @@ deploy: require-env setup push
 		--ingress=all \
 		--port 50051 \
 		--use-http2 \
-		--set-env-vars "GRPC_PORT=50051,IDP_TOKEN_ENDPOINT=$(IDP_TOKEN_ENDPOINT),IDP_CLIENT_ID=$(IDP_CLIENT_ID),IDP_SCOPE=$(IDP_SCOPE),TOOL_URL=$(TOOL_URL),AUTHZ_DECISION_ENDPOINT=$(AUTHZ_DECISION_ENDPOINT),AUTHZ_CLIENT_ID=$(AUTHZ_CLIENT_ID)" \
+		--set-env-vars "GRPC_PORT=50051,IDP_TOKEN_ENDPOINT=$(IDP_TOKEN_ENDPOINT),IDP_CLIENT_ID=$(IDP_CLIENT_ID),IDP_SCOPE=$(IDP_SCOPE),IDP_REQUIRED_AUDIENCE=$(IDP_REQUIRED_AUDIENCE),TOOL_URL=$(TOOL_URL),AUTHZ_DECISION_ENDPOINT=$(AUTHZ_DECISION_ENDPOINT),AUTHZ_CLIENT_ID=$(AUTHZ_CLIENT_ID)" \
 		--set-secrets "IDP_CLIENT_SECRET=$(SECRET):latest,AUTHZ_CLIENT_SECRET=$(AUTHZ_SECRET):latest"

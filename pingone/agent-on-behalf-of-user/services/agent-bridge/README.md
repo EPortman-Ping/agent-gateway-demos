@@ -2,33 +2,15 @@
 
 A FastAPI Cloud Run service that acts as the entry point for the Chat UI. It:
 
-1. Validates the user's PingOne token via JWKS
-2. Performs RFC 8693 token exchange (user subject + bridge actor → delegated token with `sub=user, act.client_id=bridge`)
-3. Creates (or reuses) an ADK session with the delegated token in state
-4. Invokes Agent Runtime via Google Application Default Credentials (service account)
-5. On `step_up_required` errors from the extension service: triggers a PingOne MFA push to the user, polls for approval, then re-exchanges for an elevated delegated token and retries
+1. Validates the user's PingOne token via JWKS (`iss`, `sub`, signature)
+2. Creates (or reuses) an ADK session with `user_token` in state
+3. Invokes Agent Runtime and streams the response back
+
+The bridge holds no PingOne credentials and performs no token exchange — it simply validates the inbound token and passes it through to the agent via session state.
 
 ## Configure
 
-**1. PingOne Bridge Application**
-
-Create an **OIDC Web App** in PingOne:
-
-- Name: OBO Agent Bridge
-- Grant types: Client Credentials + Token Exchange
-- Assign the `OBO Google Cloud Agent Gateway` resource with `stripe_mcp:invoke` scope
-
-On the user's PingOne app (Chat UI PKCE app), add a `may_act` claim or configure the token exchange policy to allow the bridge's `client_id` to act.
-
-**2. PingOne MFA Management Application**
-
-Create a **Worker** application in PingOne for server-side MFA push:
-
-- Name: OBO MFA Manager
-- Grant type: Client Credentials
-- Scopes: `p1:read:user`, `p1:create:device`, `p1:read:userMFAEnabled`
-
-**3. Fill in `.env`:**
+**1. Fill in `.env`:**
 
 ```bash
 cp .env.sample .env
@@ -37,17 +19,11 @@ cp .env.sample .env
 | Variable | Value |
 |---|---|
 | `GC_PROJECT_ID` | Target project ID |
-| `GC_REGION` | Deploy region |
+| `GC_REGION` | Deploy region, e.g. `us-central1` |
+| `GC_CLOUD_RUN_SERVICE_NAME` | Cloud Run service name, e.g. `aobou-agent-bridge` |
 | `AGENT_ENGINE_NAME` | Full Reasoning Engine resource name from `make deploy` in the agent directory |
 | `CORS_ORIGIN` | Chat UI Cloud Run URL |
-| `PINGONE_ISSUER` | `https://auth.pingone.com/<ENV_ID>/as` |
-| `BRIDGE_CLIENT_ID` | Bridge PingOne app Client ID |
-| `BRIDGE_CLIENT_SECRET` | Bridge PingOne app Client Secret |
-| `BRIDGE_SCOPE` | `stripe_mcp:invoke` |
-| `PINGONE_ENV_ID` | PingOne Environment ID |
-| `PINGONE_MGMT_CLIENT_ID` | MFA Manager app Client ID |
-| `PINGONE_MGMT_CLIENT_SECRET` | MFA Manager app Client Secret |
-| `PINGONE_API_BASE` | `https://api.pingone.com/v1` |
+| `PINGONE_ISSUER` | `https://auth.pingone.<region>/<env-id>/as` |
 
 ## Deploy
 
@@ -55,4 +31,4 @@ cp .env.sample .env
 make deploy
 ```
 
-`deploy` runs `setup` (creates SA, stores secrets, grants `aiplatform.user` role), then `push` (builds and pushes Docker image), then `gcloud run deploy`.
+`deploy` runs `setup`, then `push`, then `gcloud run deploy`.

@@ -1,18 +1,9 @@
 const AGENT_BACKEND_URL = import.meta.env.VITE_AGENT_BRIDGE_URL as string;
 
 /**
- * Sends a user message to the agent bridge for processing.
- *
- * The agent bridge receives the subject token (user's AIC access token with
- * may_act claim), performs RFC 8693 token exchange to obtain a delegated token,
- * then invokes MCP tools on the load balancer on behalf of the user.
- *
- * The backend maintains agent sessions keyed by subject token, so conversation
- * history is preserved across calls for the lifetime of the token.
- *
- * @param message - The user's chat message.
- * @param subjectToken - The user's PingOne AIC access token (subject token).
- * @returns The agent's text response.
+ * Sends a user message to the agent bridge. The bridge validates the token,
+ * stores it in ADK session state, and invokes Agent Runtime. The agent itself
+ * performs the RFC 8693 exchange before calling the MCP tool.
  */
 export async function invokeAgent(message: string, subjectToken: string): Promise<string> {
   const response = await fetch(`${AGENT_BACKEND_URL}/chat`, {

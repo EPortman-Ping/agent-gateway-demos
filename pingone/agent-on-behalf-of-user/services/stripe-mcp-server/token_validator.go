@@ -25,19 +25,17 @@ var (
 
 const jwksTTL = 5 * time.Minute
 
-// validateToken verifies the bearer token's signature via IDP_JWKS_URL, then
-// checks that iss, aud, and every required scope are present. Returns the
-// subject and space-separated scope string from the token on success.
-func validateToken(bearerHeader string) (sub, grantedScope string, err error) {
+// validateToken verifies the bearer token's signature, iss, aud, and required scopes.
+func validateToken(bearerHeader string) error {
 	raw := strings.TrimPrefix(bearerHeader, "Bearer ")
 	raw = strings.TrimPrefix(raw, "bearer ")
 	if raw == "" {
-		return "", "", fmt.Errorf("missing bearer token")
+		return fmt.Errorf("missing bearer token")
 	}
 
 	ks, err := getJWKS()
 	if err != nil {
-		return "", "", fmt.Errorf("jwks unavailable: %w", err)
+		return fmt.Errorf("jwks unavailable: %w", err)
 	}
 
 	tok, err := jwt.Parse([]byte(raw),
@@ -45,11 +43,11 @@ func validateToken(bearerHeader string) (sub, grantedScope string, err error) {
 		jwt.WithValidate(true),
 	)
 	if err != nil {
-		return "", "", fmt.Errorf("token signature or expiry invalid: %w", err)
+		return fmt.Errorf("token signature or expiry invalid: %w", err)
 	}
 
 	if tok.Issuer() != idpIssuer {
-		return "", "", fmt.Errorf("unexpected issuer %q (want %q)", tok.Issuer(), idpIssuer)
+		return fmt.Errorf("unexpected issuer %q (want %q)", tok.Issuer(), idpIssuer)
 	}
 
 	if mcpTokenAudience != "" {
@@ -61,7 +59,7 @@ func validateToken(bearerHeader string) (sub, grantedScope string, err error) {
 			}
 		}
 		if !found {
-			return "", "", fmt.Errorf("token audience %v does not include %q", tok.Audience(), mcpTokenAudience)
+			return fmt.Errorf("token audience %v does not include %q", tok.Audience(), mcpTokenAudience)
 		}
 	}
 
@@ -73,11 +71,11 @@ func validateToken(bearerHeader string) (sub, grantedScope string, err error) {
 	}
 	for _, required := range requiredScopeList() {
 		if _, ok := grantedSet[required]; !ok {
-			return "", "", fmt.Errorf("token is missing required scope %q", required)
+			return fmt.Errorf("token is missing required scope %q", required)
 		}
 	}
 
-	return tok.Subject(), scopeStr, nil
+	return nil
 }
 
 func requiredScopeList() []string {

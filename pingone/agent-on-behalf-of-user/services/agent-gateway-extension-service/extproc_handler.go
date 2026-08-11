@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -17,10 +18,11 @@ import (
 type shim struct {
 	extprocv3.UnimplementedExternalProcessorServer
 
-	toolURL      string
-	idp          *idpClient
-	authz        *pingoneAuthorizeClient
-	userResolver *pingoneUserResolver
+	toolURL        string
+	idp            *idpClient
+	authz          *pingoneAuthorizeClient
+	userResolver   *pingoneUserResolver
+	tokenValidator *delegatedTokenValidator
 }
 
 type shimConfig struct {
@@ -29,6 +31,7 @@ type shimConfig struct {
 	idpClientID       string
 	idpSecret         string
 	idpScope          string
+	idpAudience       string
 	authzEndpoint     string
 	authzClientID     string
 	authzClientSecret string
@@ -43,6 +46,17 @@ func newShim(cfg shimConfig) *shim {
 			clientSecret: cfg.idpSecret,
 			scope:        cfg.idpScope,
 		},
+	}
+
+	if cfg.idpAudience != "" {
+		ctx := context.Background()
+		if v, err := newDelegatedTokenValidator(ctx, cfg.idpEndpoint, cfg.idpAudience, cfg.idpScope); err != nil {
+			log.Printf("[ExtSvc] WARNING: token validator init failed: %v — inbound token validation disabled", err)
+		} else {
+			s.tokenValidator = v
+		}
+	} else {
+		log.Println("[ExtSvc] WARNING: IDP_REQUIRED_AUDIENCE not set — inbound token validation disabled")
 	}
 
 	// Derive PingOne env ID and API base from the token endpoint.
@@ -108,7 +122,7 @@ func (s *shim) Process(stream extprocv3.ExternalProcessor_ProcessServer) error {
 		var resp *extprocv3.ProcessingResponse
 		switch v := req.Request.(type) {
 		case *extprocv3.ProcessingRequest_RequestHeaders:
-			resp, userSub, agentClientID, needsAuthz = s.onRequestHeaders(v.RequestHeaders)
+			resp, userSub, agentClientID, needsAuthz = s.onRequestHeaders(stream.Context(), v.RequestHeaders)
 
 		case *extprocv3.ProcessingRequest_RequestBody:
 			resp = s.onRequestBody(v, userSub, agentClientID, needsAuthz)
@@ -130,10 +144,9 @@ func (s *shim) Process(stream extprocv3.ExternalProcessor_ProcessServer) error {
 // onRequestHeaders validates the incoming bearer token, exchanges it for a
 // tool-scoped token, resolves the user's email, and requests the body for
 // the downstream Authorize check.
-func (s *shim) onRequestHeaders(msg *extprocv3.HttpHeaders) (resp *extprocv3.ProcessingResponse, userSub, agentClientID string, needsAuthz bool) {
+func (s *shim) onRequestHeaders(ctx context.Context, msg *extprocv3.HttpHeaders) (resp *extprocv3.ProcessingResponse, userSub, agentClientID string, needsAuthz bool) {
 	authority := headerValue(msg.Headers, ":authority")
 	path := headerValue(msg.Headers, ":path")
-	log.Printf("[ExtSvc] request authority=%q path=%q", authority, path)
 
 	if !s.configured() || !s.isToolRequest(authority) {
 		return passthroughHeaders(), "", "", false
@@ -143,6 +156,13 @@ func (s *shim) onRequestHeaders(msg *extprocv3.HttpHeaders) (resp *extprocv3.Pro
 	if bearer == "" {
 		log.Printf("[ExtSvc] missing bearer token — 401")
 		return denyUnauthorized("bearer token required"), "", "", false
+	}
+
+	if s.tokenValidator != nil {
+		if err := s.tokenValidator.verify(ctx, bearer); err != nil {
+			log.Printf("[ExtSvc] token validation failed — 401: %v", err)
+			return denyUnauthorized("invalid token: " + err.Error()), "", "", false
+		}
 	}
 
 	userSub = jwtClaim(bearer, "sub")
@@ -168,7 +188,8 @@ func (s *shim) onRequestHeaders(msg *extprocv3.HttpHeaders) (resp *extprocv3.Pro
 		}
 	}
 
-	log.Printf("[ExtSvc] injecting tool token for %s (user=%s agent=%s email=%s)", authority, userSub, agentClientID, userEmail)
+	serviceName := strings.SplitN(authority, ".", 2)[0]
+	log.Printf("[ExtSvc] %s %s — user=%s agent=%s email=%s", serviceName, path, userSub, agentClientID, userEmail)
 	return injectAuthAndEmailAndRequestBody(tok, userEmail), userSub, agentClientID, s.authz != nil
 }
 

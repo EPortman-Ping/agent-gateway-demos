@@ -45,16 +45,15 @@ func newTokenValidator(ctx context.Context) (*tokenValidator, error) {
 	if err != nil {
 		return nil, err
 	}
-	jwksURL, err := get("IDP_JWKS_URL")
-	if err != nil {
-		return nil, err
-	}
+
+	// Derive JWKS URL from issuer — same convention as PingOne's discovery doc.
+	jwksURL := strings.TrimSuffix(issuer, "/") + "/jwks"
 
 	cache := jwk.NewCache(ctx)
 	if err := cache.Register(jwksURL); err != nil {
 		return nil, fmt.Errorf("register JWKS url: %w", err)
 	}
-	// Warm the cache so a bad URL fails fast at startup rather than per-request.
+	// Warm the cache so a bad issuer URL fails fast at startup rather than per-request.
 	if _, err := cache.Refresh(ctx, jwksURL); err != nil {
 		return nil, fmt.Errorf("fetch JWKS from %s: %w", jwksURL, err)
 	}

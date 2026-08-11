@@ -31,7 +31,7 @@ func listStripeProductsTool() (mcp.Tool, server.ToolHandlerFunc) {
 			log.Printf("tool=list_stripe_products — error: %v", err)
 			return mcp.NewToolResultError(fmt.Sprintf("stripe error: %v", err)), nil
 		}
-		log.Printf("tool=list_stripe_products — success caller=%s", email)
+		log.Printf("tool=list_stripe_products — success: caller=%s", email)
 		return mcp.NewToolResultText(products), nil
 	}
 	return tool, handler
@@ -72,7 +72,7 @@ func getStripeCustomerTool() (mcp.Tool, server.ToolHandlerFunc) {
 		if !ok || customerEmail == "" {
 			return mcp.NewToolResultError("could not determine user email from auth token"), nil
 		}
-		log.Printf("tool=get_stripe_customer — email=%s", customerEmail)
+		log.Printf("tool=get_stripe_customer — caller=%s", customerEmail)
 
 		customer, err := lookupCustomerByEmail(customerEmail)
 		if err != nil {
@@ -139,7 +139,7 @@ func createStripePaymentIntentTool() (mcp.Tool, server.ToolHandlerFunc) {
 		if quantity < 1 {
 			quantity = 1
 		}
-		log.Printf("tool=create_stripe_payment_intent — email=%s product_id=%s quantity=%d total_price=%.2f", customerEmail, productID, quantity, req.GetFloat("total_price", 0))
+		log.Printf("tool=create_stripe_payment_intent — caller=%s product_id=%s quantity=%d total_price=%.2f", customerEmail, productID, quantity, req.GetFloat("total_price", 0))
 
 		customer, err := lookupCustomerByEmail(customerEmail)
 		if err != nil {
@@ -158,7 +158,7 @@ func createStripePaymentIntentTool() (mcp.Tool, server.ToolHandlerFunc) {
 			log.Printf("tool=create_stripe_payment_intent — error: %v", err)
 			return mcp.NewToolResultError(fmt.Sprintf("stripe payment error: %v", err)), nil
 		}
-		log.Printf("tool=create_stripe_payment_intent — success: email=%s product_id=%s quantity=%d", customerEmail, productID, quantity)
+		log.Printf("tool=create_stripe_payment_intent — success: caller=%s product_id=%s quantity=%d", customerEmail, productID, quantity)
 		return mcp.NewToolResultText(receipt), nil
 	}
 	return tool, handler

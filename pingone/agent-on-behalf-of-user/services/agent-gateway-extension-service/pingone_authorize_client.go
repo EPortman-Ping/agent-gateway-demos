@@ -1,8 +1,14 @@
 package main
 
 import (
-	"log"
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"sync"
+	"time"
 )
 
 // pingoneAuthorizeClient calls PingOne Authorize for a compound PERMIT/DENY
@@ -18,12 +24,63 @@ type pingoneAuthorizeClient struct {
 }
 
 // Decide sends compound attributes to PingOne Authorize and returns true for
-// PERMIT. The policy can check any combination of user sub, agent client_id,
-// tool name, payment amount, and request hour.
-//
-// TODO: configure PingOne Authorize policy before enabling this check.
+// PERMIT, false for DENY or INDETERMINATE.
 func (c *pingoneAuthorizeClient) Decide(userSub, agentClientID, toolName string, amountCents, requestHour int) (bool, error) {
-	// TODO: wire up the real HTTP call once the PingOne Authorize policy is configured.
-	log.Printf("[ExtSvc] PingOne Authorize skipped (policy not yet configured) — PERMIT user=%s agent=%s tool=%s", userSub, agentClientID, toolName)
-	return true, nil
+	tok, err := c.accessToken()
+	if err != nil {
+		return false, fmt.Errorf("authorize token: %w", err)
+	}
+
+	body, _ := json.Marshal(struct {
+		Parameters map[string]any `json:"parameters"`
+	}{
+		Parameters: map[string]any{
+			"user_sub":        userSub,
+			"agent_client_id": agentClientID,
+			"tool_name":       toolName,
+			"amount_cents":    amountCents,
+			"request_hour":    requestHour,
+		},
+	})
+
+	req, err := http.NewRequest(http.MethodPost, c.decisionEndpoint, bytes.NewReader(body))
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("decision request: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("decision endpoint HTTP %d: %s", resp.StatusCode, raw)
+	}
+
+	var out struct {
+		Decision string `json:"decision"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return false, fmt.Errorf("parse decision response: %w", err)
+	}
+	return out.Decision == "PERMIT", nil
+}
+
+func (c *pingoneAuthorizeClient) accessToken() (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := time.Now()
+	if c.token.token != "" && now.Before(c.token.expires) {
+		return c.token.token, nil
+	}
+	tok, expiresIn, err := fetchToken(c.tokenEndpoint, c.clientID, c.clientSecret,
+		url.Values{"grant_type": {"client_credentials"}})
+	if err != nil {
+		return "", err
+	}
+	c.token = cachedToken{token: tok, expires: now.Add(tokenTTL(expiresIn))}
+	return tok, nil
 }

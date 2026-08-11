@@ -36,6 +36,7 @@ func main() {
 		idpClientID:       os.Getenv("IDP_CLIENT_ID"),
 		idpSecret:         os.Getenv("IDP_CLIENT_SECRET"),
 		idpScope:          os.Getenv("IDP_SCOPE"),
+		idpAudience:       os.Getenv("IDP_REQUIRED_AUDIENCE"),
 		authzEndpoint:     os.Getenv("AUTHZ_DECISION_ENDPOINT"),
 		authzClientID:     os.Getenv("AUTHZ_CLIENT_ID"),
 		authzClientSecret: os.Getenv("AUTHZ_CLIENT_SECRET"),

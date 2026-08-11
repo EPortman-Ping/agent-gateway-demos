@@ -18,7 +18,7 @@ func newRouter(mcpServer *server.StreamableHTTPServer) http.Handler {
 
 		authHeader := r.Header.Get("Authorization")
 
-		_, _, err := validateToken(authHeader)
+		err := validateToken(authHeader)
 		if err != nil {
 			log.Printf("token validation failed: %v", err)
 			w.Header().Set("Content-Type", "application/json")

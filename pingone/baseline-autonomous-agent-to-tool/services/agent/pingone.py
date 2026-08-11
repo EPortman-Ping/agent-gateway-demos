@@ -36,7 +36,7 @@ def _fetch_token() -> str:
 
     global _cached_token, _expires_at
     # Refresh 30s early; never cache for less than 10s.
-    ttl = max(body.get("expires_in", 0) - 30, 10)
+    ttl = max(body.get("expires_in", 3600) - 30, 10)
     _cached_token = token
     _expires_at = time.time() + ttl
     return token

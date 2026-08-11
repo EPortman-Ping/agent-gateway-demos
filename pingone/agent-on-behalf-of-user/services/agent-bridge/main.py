@@ -129,12 +129,10 @@ def _run_agent(user_sub: str, session_id: str, message: str) -> str:
         user_id=user_sub,
         session_id=session_id,
     ):
-        print(f"[bridge] event: {event}", flush=True)
         content = event.get("content", {})
         for part in content.get("parts", []):
             if "text" in part:
                 text_parts.append(part["text"])
-    print(f"[bridge] total text_parts={len(text_parts)}", flush=True)
     return "\n".join(text_parts).strip()
 
 
@@ -167,6 +165,9 @@ async def chat(request: Request, body: ChatRequest):
 
     claims = _validate_user_token(user_token)
     user_sub = claims["sub"]
+
+    print(f"[TOKEN:user] sub={user_sub}", flush=True)
+    print(f"[TOKEN:user:raw] {user_token}", flush=True)
 
     session_id = _ensure_session(user_sub, user_token)
 

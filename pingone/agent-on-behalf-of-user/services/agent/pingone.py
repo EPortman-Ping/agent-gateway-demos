@@ -41,7 +41,7 @@ def _get_actor_token() -> str:
     resp.raise_for_status()
     body = resp.json()
     _actor_token = body["access_token"]
-    _actor_expires_at = now + max(body.get("expires_in", 0) - 30, 10)
+    _actor_expires_at = now + max(body.get("expires_in", 3600) - 30, 10)
     return _actor_token
 
 
@@ -70,6 +70,7 @@ def _exchange(user_token: str) -> tuple[str, int]:
     token = body.get("access_token", "")
     if not token:
         raise RuntimeError(f"no access_token in exchange response: {body}")
+    logging.info("[TOKEN:delegated:raw] %s", token)
     return token, body.get("expires_in", 300)
 
 
