@@ -75,11 +75,40 @@ make deploy
 
 After deploy, note the Cloud Run service URL — you need it for the extension service's `TOOL_URL`.
 
-## Register
+## Register in Gemini Enterprise
 
-Register the server in Agent Registry (**Agent Platform → Govern → Agent Registry → Add MCP Server**):
+Before registering, create the **GE Auth Manager** app in PingOne — this is the application Gemini Enterprise uses to perform the 3-legged OAuth flow on behalf of your users:
+
+In **Connections → Applications**, create a **Single Page Application**:
 
 | Field | Value |
 |---|---|
-| **Name** | `ge-hr-mcp-server` |
+| **Name** | `GE Auth Manager` |
+| **Grant type** | Authorization Code (PKCE) |
+| **Redirect URI** | Gemini Enterprise auth manager callback URL (shown in the GE console after you start adding the MCP server) |
+
+On the **Resources** tab, assign `openid`, `profile`, `email`, and the `hr_mcp:read` scope from the `GE HR MCP Server` resource. Note the Client ID and Client Secret.
+
+Then in the Gemini Enterprise console, add the HR MCP server as a **Data Store** with OAuth 2.0 authentication:
+
+| Field | Value |
+|---|---|
 | **MCP Server URL** | `<Cloud Run service URL>/mcp` |
+| **Authorization URL** | `https://auth.pingone.com/<env-id>/as/authorize` |
+| **Token URL** | `https://auth.pingone.com/<env-id>/as/token` |
+| **Client ID** | GE Auth Manager app Client ID |
+| **Client Secret** | GE Auth Manager app Client Secret |
+| **Scopes** | `openid profile email hr_mcp:read` |
+| **Enable PKCE** | Yes |
+
+Paste the contents of `tool-spec.json` when prompted for the tool specification.
+
+**MCP Server Description:**
+```
+HR employee directory server backed by PingOne. Supports listing all employees, looking up a specific employee by email or ID, and creating new employees. Read access (list and lookup) requires membership in the hr_team group. Write access (create) requires membership in the hr_admin group. All access is enforced by PingOne Authorize at the Agent Gateway before any tool call reaches this server.
+```
+
+**MCP Agent Instructions:**
+```
+Use this server to answer questions about employees and to onboard new employees. When a user asks about an employee, use get_employee with their email address. When a user asks to see all employees, use list_employees. When a user asks to add or create a new employee, use create_employee with their first name, last name, email, and username (username should match email). If a tool call is denied, inform the user they do not have the required HR permissions.
+```

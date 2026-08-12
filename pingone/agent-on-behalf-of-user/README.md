@@ -10,6 +10,49 @@ The user logs in via PKCE and their token is carried through every hop via [RFC 
 
 The user authenticates via the Chat UI (PingOne PKCE) and sends a message to the Agent Bridge. The bridge validates the user's token and stores it raw in the ADK session state, then invokes Agent Runtime. The agent reads the user token from session state and performs an RFC 8693 token exchange to produce a delegated token, which it attaches to each outbound MCP request. Agent Runtime routes those requests through the Agent Gateway, which calls the extension service. The extension service validates the delegated token, calls PingOne Authorize with the request context, and on PingOne Authorize approval performs a second RFC 8693 token exchange to produce a tool-scoped token before the request reaches the target MCP server.
 
+## Token Chain
+
+The user's identity is carried through every hop as a chain of RFC 8693 delegation exchanges. Each hop adds an `act` (actor) claim identifying the delegating party, so the final token at the MCP server shows the full chain: user → agent → extension service.
+
+**Subject token** — user's PKCE token, stored in ADK session state by the agent bridge:
+```json
+{
+  "iss": "https://auth.pingone.com/<env-id>/as",
+  "sub": "<alice-user-id>",
+  "aud": "<chat-ui-resource-id>",
+  "scope": "openid profile email stripe_mcp:invoke"
+}
+```
+
+**Exchanged token 1 (delegated token)** — minted by the agent via RFC 8693, attached to every outbound MCP request:
+```json
+{
+  "iss": "https://auth.pingone.com/<env-id>/as",
+  "sub": "<alice-user-id>",
+  "aud": "stripe-mcp-server",
+  "scope": "stripe_mcp:invoke",
+  "act": {
+    "sub": "<agent-client-id>"
+  }
+}
+```
+
+**Exchanged token 2 (tool token)** — minted by the extension service via RFC 8693, injected before forwarding to the Stripe MCP server:
+```json
+{
+  "iss": "https://auth.pingone.com/<env-id>/as",
+  "sub": "<alice-user-id>",
+  "aud": "stripe-mcp-server",
+  "scope": "stripe_mcp:invoke",
+  "act": {
+    "sub": "<ext-svc-client-id>",
+    "act": {
+      "sub": "<agent-client-id>"
+    }
+  }
+}
+```
+
 ## Components
 
 | Component | Role |

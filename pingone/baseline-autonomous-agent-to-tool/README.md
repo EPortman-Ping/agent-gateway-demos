@@ -10,6 +10,33 @@ Every MCP request is intercepted by the [GCP Agent Gateway](https://docs.cloud.g
 
 Following the diagram: the agent authenticates to PingOne as its own client and carries that token on every MCP request, which Agent Runtime routes through the gateway to the extension service. The service asks PingOne Authorize for a decision; on PERMIT it performs a delegation token exchange, minting a token audienced for the tool, and injects it into the request before it's forwarded to the MCP server.
 
+## Token Chain
+
+The agent mints its own `client_credentials` token and attaches it to every MCP request. The extension service exchanges it for a tool-scoped token via RFC 8693, adding itself as the `act` (actor) claim.
+
+**Subject token** — agent's `client_credentials` token, carried on every MCP request:
+```json
+{
+  "iss": "https://auth.pingone.com/<env-id>/as",
+  "sub": "<agent-client-id>",
+  "aud": "supply-chain-mcp-tool",
+  "scope": "supply-chain:restock"
+}
+```
+
+**Tool token** — minted by the extension service via RFC 8693, injected before forwarding to the MCP tool:
+```json
+{
+  "iss": "https://auth.pingone.com/<env-id>/as",
+  "sub": "<agent-client-id>",
+  "aud": "supply-chain-mcp-tool",
+  "scope": "supply-chain:restock",
+  "act": {
+    "sub": "<ext-svc-client-id>"
+  }
+}
+```
+
 ## Components
 
 | Component | Role |

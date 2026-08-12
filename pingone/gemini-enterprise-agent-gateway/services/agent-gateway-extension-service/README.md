@@ -60,15 +60,7 @@ Note the decision endpoint URL from **Authorization → Decision Endpoints** —
 
 ### 6. Configure the Gemini Enterprise Auth Manager app in PingOne
 
-In **Connections → Applications**, create a **Single Page Application** (Authorization Code + PKCE):
-
-| Field | Value |
-|---|---|
-| **Name** | `GE Auth Manager` |
-| **Grant type** | Authorization Code (PKCE) |
-| **Redirect URI** | Gemini Enterprise auth manager callback URL |
-
-On the **Resources** tab, assign `openid`, `profile`, `email`, and the `hr_mcp:read` scope from the `GE HR MCP Server` resource. Note the Client ID — this is used when configuring the auth manager in the Gemini Enterprise app console.
+This app is registered in the HR MCP Server section (it lives closer to the data store registration step). See [hr-mcp-server/README.md](../hr-mcp-server/README.md#register-in-gemini-enterprise) for the setup instructions.
 
 ### 7. Configure environment values
 
