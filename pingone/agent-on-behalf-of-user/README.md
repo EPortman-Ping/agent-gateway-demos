@@ -14,22 +14,32 @@ The user authenticates via the Chat UI (PingOne PKCE) and sends a message to the
 
 The user's identity is carried through every hop as a chain of RFC 8693 delegation exchanges. Each hop adds an `act` (actor) claim identifying the delegating party, so the final token at the MCP server shows the full chain: user → agent → extension service.
 
-**Subject token** — user's PKCE token, stored in ADK session state by the agent bridge:
+**Subject token** — the user's PKCE token, issued after login and stored in ADK session state by the agent bridge:
+- Represents the user (see sub)
+- Minted by the Chat UI (see client_id)
+- For use on the Chat UI resource (see aud)
+- Carries permission to invoke the downstream Stripe tool
 ```json
 {
   "iss": "https://auth.pingone.com/<env-id>/as",
   "sub": "<alice-user-id>",
-  "aud": "<chat-ui-resource-id>",
+  "client_id": "<chat-ui-client-id>",
+  "aud": "chat-ui",
   "scope": "openid profile email stripe_mcp:invoke"
 }
 ```
 
 **Exchanged token 1 (delegated token)** — minted by the agent via RFC 8693, attached to every outbound MCP request:
+- Still represents the user (see sub) — the agent acts *on behalf of* Alice, not as itself
+- Minted by the agent (see client_id)
+- For use on the agent gateway (see aud)
+- act.sub records the agent as the delegating party
 ```json
 {
   "iss": "https://auth.pingone.com/<env-id>/as",
   "sub": "<alice-user-id>",
-  "aud": "stripe-mcp-server",
+  "client_id": "<agent-client-id>",
+  "aud": "agent-gateway",
   "scope": "stripe_mcp:invoke",
   "act": {
     "sub": "<agent-client-id>"
@@ -37,11 +47,16 @@ The user's identity is carried through every hop as a chain of RFC 8693 delegati
 }
 ```
 
-**Exchanged token 2 (tool token)** — minted by the extension service via RFC 8693, injected before forwarding to the Stripe MCP server:
+**Exchanged token 2 (tool token)** — minted by the extension service via RFC 8693 after PingOne Authorize returns PERMIT:
+- Still represents the user (see sub) — Alice's identity is preserved end-to-end
+- Minted by the extension service (see client_id)
+- For use on the Stripe MCP server (see aud)
+- act chain records the full delegation: extension service → agent → user
 ```json
 {
   "iss": "https://auth.pingone.com/<env-id>/as",
   "sub": "<alice-user-id>",
+  "client_id": "<ext-svc-client-id>",
   "aud": "stripe-mcp-server",
   "scope": "stripe_mcp:invoke",
   "act": {

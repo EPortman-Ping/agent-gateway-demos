@@ -15,20 +15,30 @@ Following the diagram: the agent authenticates to PingOne as its own client and 
 The agent mints its own `client_credentials` token and attaches it to every MCP request. The extension service exchanges it for a tool-scoped token via RFC 8693, adding itself as the `act` (actor) claim.
 
 **Subject token** — agent's `client_credentials` token, carried on every MCP request:
+- Represents the agent (see sub)
+- Minted by the agent (see client id)
+- For use on the agent gateway (see aud)
+- Ability to invoke the downstream restock tool
 ```json
 {
   "iss": "https://auth.pingone.com/<env-id>/as",
   "sub": "<agent-client-id>",
-  "aud": "supply-chain-mcp-tool",
+  "client_id": "<agent-client-id>",
+  "aud": "agent-gateway",
   "scope": "supply-chain:restock"
 }
 ```
 
 **Tool token** — minted by the extension service via RFC 8693, injected before forwarding to the MCP tool:
+- Represents the agent (see sub)
+- Minted by the agent gateway extension service (see client id)
+- For use on the supply chain mcp tool (see aud)
+- Ability to invoke the restock tool
 ```json
 {
   "iss": "https://auth.pingone.com/<env-id>/as",
   "sub": "<agent-client-id>",
+  "client_id": "<ext-svc-client-id>",
   "aud": "supply-chain-mcp-tool",
   "scope": "supply-chain:restock",
   "act": {
