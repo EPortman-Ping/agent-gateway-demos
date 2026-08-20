@@ -11,7 +11,7 @@ func newMCPServer(usersClient *pingoneUsersClient) *server.StreamableHTTPServer 
 		server.WithToolCapabilities(false),
 	)
 	registerHRTools(s, usersClient)
-	return server.NewStreamableHTTPServer(s)
+	return server.NewStreamableHTTPServer(s, server.WithStateLess(true))
 }
 
 func newPingOneUsersClient() *pingoneUsersClient {

@@ -1,11 +1,11 @@
 BAATT := baseline-autonomous-agent-to-tool/services/agent
 AOBOU := agent-on-behalf-of-user/services/agent
 
-# Google enforces a project-level limit of one gateway-bound Reasoning Engine
-# per direction. Both demos use Agent-to-Anywhere egress on the same project,
-# so only one can be active at a time. These targets delete the active agent
-# and deploy the other. Expect ~2-5 minutes for Agent Runtime to come up and
-# another ~3 minutes for iap.egressor propagation before the new agent is live.
+# All Agent Runtime Reasoning Engines in the same project and region must use
+# the same Agent-to-Anywhere gateway for egress. Multiple engines can share
+# that gateway, but different engines cannot select different egress gateways.
+# Allow a few minutes for Agent Runtime and iap.egressor IAM propagation after
+# deploying or changing a gateway-bound engine.
 
 .PHONY: switch-to-baatt switch-to-aobou
 

@@ -16,7 +16,7 @@ require-env:
 	@test -n "$(GC_AUTHZ_POLICY)"     || { echo "GC_AUTHZ_POLICY not set — fill in .env"; exit 1; }
 
 render: require-env
-	@EXT_HOST=$$(gcloud run services describe $(GC_EXT_SVC_NAME) --region $(GC_REGION) --format 'value(status.url)' | sed 's|https://||'); \
+	@EXT_HOST=$$(gcloud run services describe $(GC_EXT_SVC_NAME) --region $(or $(GC_EXT_SVC_REGION),$(GC_REGION)) --format 'value(status.url)' | sed 's|https://||'); \
 	test -n "$$EXT_HOST" || { echo "Could not resolve $(GC_EXT_SVC_NAME) URL — is it deployed?"; exit 1; }; \
 	export PROJECT_ID GC_REGION GC_GATEWAY_NAME GC_AUTHZ_EXTENSION GC_AUTHZ_POLICY EXT_HOST; \
 	envsubst < authz-extension.tmpl.yaml > $(EXT_YAML); \

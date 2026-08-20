@@ -15,31 +15,13 @@ func passthroughHeaders() *extprocv3.ProcessingResponse {
 	}
 }
 
-// injectAuthAndEmailAndRequestBody injects the tool token as Authorization and
-// the resolved user email as X-User-Email in the header phase, then requests
-// the body (BUFFERED) for the downstream Authorize check. Header mutations must
-// happen here — in FULL_DUPLEX_STREAMED mode, header mutations in body-phase
-// responses are silently dropped.
-func injectAuthAndEmailAndRequestBody(tok, email string) *extprocv3.ProcessingResponse {
-	headers := []*corev3.HeaderValueOption{
-		{
-			AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
-			Header:       &corev3.HeaderValue{Key: "Authorization", RawValue: []byte("Bearer " + tok)},
-		},
-	}
-	if email != "" {
-		headers = append(headers, &corev3.HeaderValueOption{
-			AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
-			Header:       &corev3.HeaderValue{Key: "X-User-Email", RawValue: []byte(email)},
-		})
-	}
+// requestBody requests the body (BUFFERED) so the body-phase handler can
+// inspect the MCP method and log tool calls. No header mutations are made —
+// the original bearer token passes through to the HR MCP server unchanged.
+func requestBody() *extprocv3.ProcessingResponse {
 	return &extprocv3.ProcessingResponse{
 		Response: &extprocv3.ProcessingResponse_RequestHeaders{
-			RequestHeaders: &extprocv3.HeadersResponse{
-				Response: &extprocv3.CommonResponse{
-					HeaderMutation: &extprocv3.HeaderMutation{SetHeaders: headers},
-				},
-			},
+			RequestHeaders: &extprocv3.HeadersResponse{},
 		},
 		ModeOverride: &extprochttp.ProcessingMode{
 			RequestBodyMode: extprochttp.ProcessingMode_BUFFERED,
