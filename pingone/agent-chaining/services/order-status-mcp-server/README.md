@@ -1,25 +1,35 @@
 # Order Status MCP Server
 
-A protected, deterministic MCP server exposing one read-only capability: `get_order_status`.
+A Go Streamable HTTP MCP server deployed to Cloud Run. It exposes one protected read-only capability: `get_order_status`.
 
-The Order Status Agent is the only agent intended to call this service. The server validates the final token audience, scope, actor, and user subject before returning mock order data.
-
-## Configure
+## Configure and deploy
 
 ```bash
 cp .env.sample .env
+make build
+make deploy
 ```
 
-Production configuration uses a PingOne issuer, the `order-status-mcp-server` audience, and the `order:read` scope. Local mode uses claims-shaped `local-rfc8693.*` tokens only as a development stand-in.
-
-## Run
-
-```bash
-make run
-```
-
-The MCP endpoint is:
+The resulting endpoint is:
 
 ```text
-http://localhost:8082/mcp
+https://<cloud-run-service-url>/mcp
 ```
+
+Copy that URL into `MCP_ORDER_STATUS_SERVER_URL` in the Order Status Agent configuration.
+
+## Configuration
+
+| Variable | Purpose |
+|---|---|
+| `GC_REGION` | Cloud Run region |
+| `GC_CLOUD_RUN_SERVICE_NAME` | Cloud Run service name |
+| `IDP_ISSUER` | PingOne issuer; JWKS is derived as `<issuer>/jwks` |
+| `IDP_REQUIRED_AUDIENCE` | `order-status-mcp-server` |
+| `IDP_REQUIRED_SCOPE` | `order:read` |
+
+## Security
+
+The service is deployed with `--allow-unauthenticated` so the Agent Gateway can reach Cloud Run. Authentication is enforced in the application: every request must contain a signed PingOne JWT with the configured issuer, audience, expiry, and scope. The server validates the token against PingOne JWKS before passing the request to the MCP handler.
+
+The service has no local Uvicorn mode and does not accept development-only tokens. It is a Cloud Run deployment unit only.

@@ -17,6 +17,7 @@ services/*/supply-chain-mcp-tool
 **/services/stripe-mcp-server/stripe-mcp-server
 **/services/agent-gateway-extension-service/ge-agent-gateway-extension-service
 **/services/hr-mcp-server/hr-mcp-server
+**/services/order-status-mcp-server/order-status-mcp-server
 
 # Node
 node_modules/
