@@ -1,0 +1,16 @@
+name: projects/${PROJECT_ID}/locations/${GC_REGION}/authzPolicies/agent-chain-authz-policy
+action: CUSTOM
+policyProfile: CONTENT_AUTHZ
+customProvider:
+  authzExtension:
+    resources:
+      - projects/${PROJECT_ID}/locations/${GC_REGION}/authzExtensions/agent-chain-authz-extension
+httpRules:
+  - to:
+      operations:
+        - paths:
+            - prefix: /a2a
+            - prefix: /mcp
+target:
+  resources:
+    - projects/${PROJECT_ID}/locations/${GC_REGION}/agentGateways/agent-chain-gateway
