@@ -13,7 +13,7 @@ Support Agent (Agent Runtime)
   │ RFC 8693: user_token + Support Agent actor
   │ aud=order-status-agent, scope=order-status:invoke
   ▼
-Agent Gateway / A2A Adapter
+Agent Gateway / native A2A
   ▼
 Order Status Agent (Agent Runtime)
   │ RFC 8693: delegated token + Order Status Agent actor
@@ -36,7 +36,6 @@ A support agent can answer an order question, but it never receives direct acces
 - `services/chat-ui/` — React/Vite PingOne PKCE browser.
 - `services/agent-bridge/` — FastAPI Cloud Run user/session boundary.
 - `services/support-agent/` — Agent Runtime Support Agent (`agent.py`, `pingone.py`, `deploy.py`, `teardown.py`).
-- `services/order-status-a2a-adapter/` — authenticated A2A ingress to the Order Status Agent.
 - `services/order-status-agent/` — Agent Runtime Order Status Agent with the only MCP capability.
 - `services/order-status-mcp-server/` — deployable protected MCP server with deterministic mock data.
 
@@ -50,7 +49,7 @@ Follow [Order Status MCP Server](services/order-status-mcp-server/README.md) to 
 
 ### 2. Agent Gateway Extension Service
 
-Follow the Agent Gateway extension-service deployment instructions to deploy the ext_proc service to Cloud Run. Configure it for the Order Status MCP Server and the Order Status A2A Adapter. The extension service validates delegated token audience/scope, permits requests in explicit plumbing mode, and performs the final RFC 8693 downscoping. Actor checks and real PingOne Authorize policy are added after the path is working.
+Follow the Agent Gateway extension-service deployment instructions to deploy the ext_proc service to Cloud Run. Configure it for the native Order Status Agent A2A endpoint and the Order Status MCP Server. In explicit plumbing mode it validates delegated token audience/scope, forwards the A2A delegation, and performs the final MCP RFC 8693 downscoping. Actor checks and real PingOne Authorize policy are added after the path is working.
 
 > This service is not yet present in the `agent-chaining` directory. The existing implementation to adapt is [agent-gateway-extension-service](../agent-on-behalf-of-user/services/agent-gateway-extension-service/README.md). Do not deploy that existing service unchanged; its current policy attributes and target matching are specific to the on-behalf-of-user Stripe journey.
 
@@ -70,29 +69,25 @@ Follow [Order Status Agent](services/order-status-agent/README.md) to create its
 - `GC_AGENT_GATEWAY` from step 3
 - The Order Status Agent RFC 8693 client and `order:read` scope
 
-Record the resulting Reasoning Engine resource name for the A2A Adapter.
+Record the native A2A endpoint from Agent Registry. It has the form `/v1beta1/projects/<project-number>/locations/<region>/reasoningEngines/<engine-id>/a2a`. Update `A2A_TARGET_URL` in the extension and `A2A_ORDER_STATUS_AGENT_URL` in the Support Agent with this endpoint.
 
-### 5. Order Status A2A Adapter
+### 5. Agent Gateway — register native A2A
 
-Follow [Order Status A2A Adapter](services/order-status-a2a-adapter/README.md) to deploy the Cloud Run `/a2a` endpoint. Configure it with the Order Status Agent engine resource from step 4. Record the adapter URL.
+Register the deployed Order Status Agent's A2A Agent Card in the same project/region Agent Registry. The shared gateway already references that registry. Keep the policy attached to `ac-agent-gateway`; its native Reasoning Engine path prefix covers the A2A call and `/mcp` covers the tool call.
 
-### 6. Agent Gateway — register the adapter destination
-
-Return to `services/agent-gateway/` and register the Order Status A2A Adapter URL from step 5 as the second egress destination. The gateway resource and extension attachment from step 3 stay unchanged; this only adds an Agent Registry endpoint entry.
-
-### 7. Support Agent
+### 6. Support Agent
 
 Follow [Support Agent](services/support-agent/README.md) to create its PingOne application and deploy the second Agent Runtime Reasoning Engine. Configure:
 
-- `A2A_ORDER_STATUS_AGENT_URL` with the adapter URL from step 5
+- `A2A_ORDER_STATUS_AGENT_URL` with the native endpoint from step 4
 - `GC_AGENT_GATEWAY` with the same gateway resource from step 3
 - The Support Agent RFC 8693 client and `order-status:invoke` scope
 
-### 8. Agent Bridge
+### 7. Agent Bridge
 
 Follow [Agent Bridge](services/agent-bridge/README.md) to deploy the Cloud Run user/session boundary. Configure `AGENT_ENGINE_NAME` with the Support Agent engine resource from step 7 and `CORS_ORIGIN` with the future Chat UI URL.
 
-### 9. Chat UI
+### 8. Chat UI
 
 Follow [Chat UI](services/chat-ui/README.md) to configure the PingOne PKCE application and deploy the browser application. Set `VITE_AGENT_BRIDGE_URL` to the Agent Bridge URL from step 8.
 

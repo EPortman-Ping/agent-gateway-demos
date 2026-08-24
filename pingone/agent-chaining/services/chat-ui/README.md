@@ -9,9 +9,11 @@ A React/Vite single-page app. Users log in via PingOne PKCE (Authorization Code 
 Create a **Single Page App** in PingOne:
 - Name: Agent Chaining Chat UI
 - Grant type: Authorization Code + PKCE
-- Redirect URI: your Cloud Run URL
-- Signoff URI: your Cloud Run URL
-- Scopes: `openid order-status:invoke`
+- Redirect URI: the exact value of `VITE_REDIRECT_URI` (currently `https://ac-agent-chain-chat-ui-f447x3emfq-uc.a.run.app/`, including the trailing slash)
+- Signoff URI: the exact Chat UI Cloud Run URL, `https://ac-agent-chain-chat-ui-f447x3emfq-uc.a.run.app/`
+- Scopes: `openid profile email order-status:invoke`
+
+PingOne compares `redirect_uri` byte-for-byte. Register the deployed URL before signing in; a missing trailing slash, a different Cloud Run hostname, or a wildcard produces a redirect URI mismatch at the PingOne sign-on page.
 
 **2. Fill in `.env`:**
 

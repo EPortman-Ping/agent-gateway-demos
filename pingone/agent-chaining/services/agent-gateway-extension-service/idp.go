@@ -80,12 +80,23 @@ type idpClient struct {
 	clientID     string
 	clientSecret string
 	mu           sync.Mutex
-	actor        cachedToken
+	// actorByScope caches actor tokens per requested scope. PingOne's
+	// client_credentials grant rejects an unscoped request once the client
+	// has scopes assigned across more than one resource ("May not request
+	// scopes for multiple resources"), so each actor fetch must name exactly
+	// the scope it needs for the target it's about to be presented to.
+	actorByScope map[string]cachedToken
 	cache        map[string]cachedToken
 }
 
 func newIDPClient(endpoint, clientID, clientSecret string) *idpClient {
-	return &idpClient{endpoint: endpoint, clientID: clientID, clientSecret: clientSecret, cache: make(map[string]cachedToken)}
+	return &idpClient{
+		endpoint:     endpoint,
+		clientID:     clientID,
+		clientSecret: clientSecret,
+		actorByScope: make(map[string]cachedToken),
+		cache:        make(map[string]cachedToken),
+	}
 }
 
 // exchangeForTarget returns a target-audienced delegated token.
@@ -103,7 +114,7 @@ func (c *idpClient) exchangeForTarget(subjectToken, targetName, audience, scope 
 		return ct.token, nil
 	}
 
-	actor, err := c.refreshActor(now)
+	actor, err := c.refreshActor(now, scope)
 	if err != nil {
 		return "", fmt.Errorf("actor client_credentials: %w", err)
 	}
@@ -117,18 +128,18 @@ func (c *idpClient) exchangeForTarget(subjectToken, targetName, audience, scope 
 	return tok, nil
 }
 
-// refreshActor returns the cached actor token, fetching a new one if expired.
-// Must be called with c.mu held.
-func (c *idpClient) refreshActor(now time.Time) (string, error) {
-	if c.actor.token != "" && now.Before(c.actor.expires) {
-		return c.actor.token, nil
+// refreshActor returns the cached actor token for the given scope, fetching
+// a new one if expired or not yet cached. Must be called with c.mu held.
+func (c *idpClient) refreshActor(now time.Time, scope string) (string, error) {
+	if cached, ok := c.actorByScope[scope]; ok && now.Before(cached.expires) {
+		return cached.token, nil
 	}
 	tok, expiresIn, err := fetchToken(c.endpoint, c.clientID, c.clientSecret,
-		url.Values{"grant_type": {"client_credentials"}})
+		url.Values{"grant_type": {"client_credentials"}, "scope": {scope}})
 	if err != nil {
 		return "", err
 	}
-	c.actor = cachedToken{token: tok, expires: now.Add(tokenTTL(expiresIn))}
+	c.actorByScope[scope] = cachedToken{token: tok, expires: now.Add(tokenTTL(expiresIn))}
 	return tok, nil
 }
 

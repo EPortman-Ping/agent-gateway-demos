@@ -9,8 +9,10 @@ POST /chat:
   3. Call agent.stream_query; return the text response.
 """
 
+from datetime import datetime, timezone
 import os
 import time
+from uuid import uuid4
 
 import httpx
 from dotenv import load_dotenv
@@ -104,8 +106,17 @@ def _create_session(user_sub: str, user_token: str) -> str:
             session_state={"user_token": user_token},
         ),
     )
-    print(f"[bridge] session op done={op.done} response={op.response} error={op.error}", flush=True)
-    session_id = op.response.name.split("/")[-1]
+    session_name = op.response.name
+    session_id = session_name.split("/")[-1]
+    _client.agent_engines.sessions.events.append(
+        name=session_name,
+        author="system",
+        invocation_id=str(uuid4()),
+        timestamp=datetime.now(timezone.utc),
+        config=agent_types.AppendAgentEngineSessionEventConfig(
+            actions=agent_types.EventActions(state_delta={"user_token": user_token}),
+        ),
+    )
     print(f"[bridge] created session_id={session_id}", flush=True)
     _sessions[user_sub] = (session_id, user_token)
     return session_id
@@ -129,11 +140,20 @@ def _run_agent(user_sub: str, session_id: str, message: str) -> str:
         user_id=user_sub,
         session_id=session_id,
     ):
+        print(f"[bridge] event author={event.get('author')} keys={list(event.keys())}", flush=True)
         content = event.get("content", {})
         for part in content.get("parts", []):
             if "text" in part:
                 text_parts.append(part["text"])
-    return "\n".join(text_parts).strip()
+        actions = event.get("actions", {})
+        function_call = content.get("parts", [{}])[0].get("function_call") if content.get("parts") else None
+        function_response = content.get("parts", [{}])[0].get("function_response") if content.get("parts") else None
+        if function_call or function_response or actions.get("state_delta"):
+            print(f"[bridge] non_text_event function_call={bool(function_call)} function_response={bool(function_response)}", flush=True)
+    reply = "\n".join(text_parts).strip()
+    if not reply:
+        raise RuntimeError("Agent Runtime returned no text response; inspect the Support Agent session events")
+    return reply
 
 
 # ── FastAPI app ────────────────────────────────────────────────────────────────

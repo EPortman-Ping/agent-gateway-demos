@@ -12,4 +12,4 @@ name = os.environ["AGENT_DISPLAY_NAME"]
 for engine in client.agent_engines.list():
     if engine.api_resource.display_name == name:
         print("Deleting Support Agent:", engine.api_resource.name)
-        client.agent_engines.delete(name=engine.api_resource.name)
+        client.agent_engines.delete(name=engine.api_resource.name, force=True)
