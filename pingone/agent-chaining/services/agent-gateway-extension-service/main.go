@@ -33,7 +33,8 @@ func main() {
 	}
 
 	shim, err := newShim(shimConfig{
-		a2aURL: os.Getenv("A2A_TARGET_URL"), a2aAudience: os.Getenv("A2A_REQUIRED_AUDIENCE"), a2aScope: os.Getenv("A2A_REQUIRED_SCOPE"), a2aActor: os.Getenv("A2A_EXPECTED_ACTOR"),
+		agentGatewayAudience: os.Getenv("AGENT_GATEWAY_AUDIENCE"),
+		a2aURL:               os.Getenv("A2A_TARGET_URL"), a2aAudience: os.Getenv("A2A_REQUIRED_AUDIENCE"), a2aScope: os.Getenv("A2A_REQUIRED_SCOPE"), a2aActor: os.Getenv("A2A_EXPECTED_ACTOR"),
 		mcpURL: os.Getenv("MCP_TARGET_URL"), mcpAudience: os.Getenv("MCP_REQUIRED_AUDIENCE"), mcpScope: os.Getenv("MCP_REQUIRED_SCOPE"), mcpActor: os.Getenv("MCP_EXPECTED_ACTOR"),
 		idpEndpoint: os.Getenv("IDP_TOKEN_ENDPOINT"), idpClientID: os.Getenv("IDP_CLIENT_ID"), idpSecret: os.Getenv("IDP_CLIENT_SECRET"),
 		authzEndpoint: os.Getenv("AUTHZ_DECISION_ENDPOINT"), authzClientID: os.Getenv("AUTHZ_CLIENT_ID"), authzClientSecret: os.Getenv("AUTHZ_CLIENT_SECRET"), authzMode: os.Getenv("AUTHZ_MODE"),

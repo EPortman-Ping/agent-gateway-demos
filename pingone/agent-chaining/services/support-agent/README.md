@@ -15,8 +15,8 @@ cp .env.sample .env
 | `AGENT_DISPLAY_NAME` | Support Agent Reasoning Engine display name |
 | `GC_AGENT_GATEWAY` | Shared Agent-to-Anywhere gateway resource |
 | `A2A_ORDER_STATUS_AGENT_URL` | Order Status Agent A2A endpoint |
-| `A2A_ORDER_STATUS_AUDIENCE` | Order Status Agent token audience |
 | `A2A_ORDER_STATUS_SCOPE` | Delegated A2A scope |
+| `AGENT_GATEWAY_AUDIENCE` | Shared intermediate PingOne audience this agent's own exchange targets — the gateway extension performs the real exchange to `order-status-agent` on top of this one (see [the gateway extension's README](../agent-gateway-extension-service/README.md#pingone-resource-setup)) |
 | `AGENT_IDP_TOKEN_ENDPOINT` | PingOne token endpoint |
 | `AGENT_IDP_CLIENT_ID` | Support Agent exchange client |
 | `AGENT_IDP_CLIENT_SECRET` | Support Agent exchange secret |

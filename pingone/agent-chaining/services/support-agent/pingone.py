@@ -14,7 +14,12 @@ _CLIENT_ID = os.environ.get("AGENT_IDP_CLIENT_ID", "")
 _CLIENT_SECRET = os.environ.get("AGENT_IDP_CLIENT_SECRET", "")
 _SCOPE = os.environ.get("A2A_ORDER_STATUS_SCOPE", "order-status:invoke")
 _ACTOR_SCOPE = os.environ.get("AGENT_IDP_SCOPE", "").strip()
-_AUDIENCE = os.environ.get("A2A_ORDER_STATUS_AUDIENCE", "order-status-agent")
+# Targets the shared intermediate "agent-gateway" audience, not the real
+# order-status-agent audience directly — the gateway extension performs the
+# real exchange to order-status-agent on top of this one. See the gateway
+# extension's .env.sample for why (keeps order-status-agent's PingOne
+# resource purely terminal instead of being touched by two exchanges).
+_AUDIENCE = os.environ.get("AGENT_GATEWAY_AUDIENCE", "ac-google-cloud-agent-gateway")
 
 _lock = threading.Lock()
 _actor_token = ""

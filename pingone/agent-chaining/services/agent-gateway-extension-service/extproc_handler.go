@@ -18,7 +18,19 @@ import (
 )
 
 type targetConfig struct {
-	name, host, path, audience, scope, expectedActor, protocol string
+	name, host, path string
+	// incomingAudience is the shared "agent-gateway" placeholder audience the
+	// calling agent's own RFC 8693 exchange targets. It's never the resource
+	// the downstream agent/tool actually validates — it exists so PingOne
+	// resource attribute mappings only ever see one exchange touch each real
+	// resource (this gateway's), matching the baatt/aobou pattern and keeping
+	// each final resource's `may_act`/`act` mapping simple and terminal.
+	incomingAudience string
+	// exchangeAudience is the real, final audience requested in the gateway's
+	// own RFC 8693 exchange — what the downstream agent or MCP server expects.
+	exchangeAudience     string
+	scope, expectedActor string
+	protocol             string
 	// dualAuth marks targets that are themselves Google-hosted API surfaces
 	// (e.g. aiplatform.googleapis.com reasoning engines). Those enforce their
 	// own Google IAM check on Authorization independent of gateway policy, so
@@ -37,6 +49,7 @@ type shim struct {
 }
 
 type shimConfig struct {
+	agentGatewayAudience                                       string
 	a2aURL, a2aAudience, a2aScope, a2aActor                    string
 	mcpURL, mcpAudience, mcpScope, mcpActor                    string
 	idpEndpoint, idpClientID, idpSecret                        string
@@ -44,16 +57,25 @@ type shimConfig struct {
 }
 
 func newShim(cfg shimConfig) (*shim, error) {
-	parseTarget := func(raw, name, protocol, audience, scope, actor string) (targetConfig, error) {
+	parseTarget := func(raw, name, protocol, exchangeAudience, scope, actor string) (targetConfig, error) {
 		u, err := url.Parse(raw)
 		if err != nil || u.Host == "" {
 			return targetConfig{}, fmt.Errorf("invalid %s target URL", name)
 		}
-		validator, err := newDelegatedTokenValidator(context.Background(), cfg.idpEndpoint, audience, scope)
+		// The validator checks the caller's bearer against the shared
+		// intermediate audience, not the final one — see incomingAudience.
+		validator, err := newDelegatedTokenValidator(context.Background(), cfg.idpEndpoint, cfg.agentGatewayAudience, scope)
 		if err != nil {
 			return targetConfig{}, err
 		}
-		return targetConfig{name: name, host: u.Host, path: u.Path, audience: audience, scope: scope, expectedActor: actor, protocol: protocol, validator: validator}, nil
+		return targetConfig{
+			name: name, host: u.Host, path: u.Path,
+			incomingAudience: cfg.agentGatewayAudience, exchangeAudience: exchangeAudience,
+			scope: scope, expectedActor: actor, protocol: protocol, validator: validator,
+		}, nil
+	}
+	if cfg.agentGatewayAudience == "" {
+		return nil, fmt.Errorf("AGENT_GATEWAY_AUDIENCE is required")
 	}
 	a2a, err := parseTarget(cfg.a2aURL, "A2A", "a2a", cfg.a2aAudience, cfg.a2aScope, cfg.a2aActor)
 	if err != nil {
@@ -144,7 +166,7 @@ func (s *shim) onHeaders(ctx context.Context, msg *extprocv3.HttpHeaders) (*extp
 	// enforcement is added with the real authorization policy in the next phase.
 	actor := "delegated-agent"
 
-	reminted, err := s.idp.exchangeForTarget(bearer, target.name, target.audience, target.scope)
+	reminted, err := s.idp.exchangeForTarget(bearer, target.name, target.exchangeAudience, target.scope)
 	if err != nil {
 		log.Printf("[ExtSvc] target=%s token exchange failed: %v", target.name, err)
 		return denyForbidden("token exchange failed"), target, "", "", ""
