@@ -15,9 +15,9 @@ On the `AC Order Status MCP Server` resource, go to the **Attributes** tab and c
 
 1. **`sub`** — click its gear icon to open Advanced Expressions and enter:
    ```text
-   #root.context.requestData.subjectToken.sub
+   (#root.context.requestData.grantType == "client_credentials") ? "no-subject" : #root.context.requestData.subjectToken.sub
    ```
-   Carries the subject token's `sub` through to the exchanged token, so the customer's identity survives this hop.
+   The `subjectToken.sub` half carries the subject token's `sub` through to the exchanged token, so the customer's identity survives this hop. **The `client_credentials` branch is required, not optional**: the gateway extension's own actor-token fetch for the `order:read` scope is a plain `client_credentials` request against this same resource, and that grant type has no `subjectToken` — leaving this expression as `#root.context.requestData.subjectToken.sub` alone 400s that call with `sub is configured as required for the Access token but does not have a value`, which blocks the entire MCP hop.
 
 2. **`act`** — click **Add**, name it `act`, open its Advanced Expressions, and enter:
    ```text

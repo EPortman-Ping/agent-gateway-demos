@@ -15,92 +15,107 @@ Agent Bridge
   │  Stores it in Support Agent's ADK session state.
   ▼
 Support Agent (Agent Runtime, ADK)
-  │  RFC 8693 exchange #1: swaps the actor to Support Agent, same aud/scope.
+  │  RFC 8693 exchange #1: swaps the actor to Support Agent, re-audiences to
+  │  the shared intermediate resource ac-google-cloud-agent-gateway (same scope).
   │  Sends it in the native A2A request body's `metadata` field.
   ▼
 Agent Gateway — native A2A (egress via the mTLS host)
-  │  RFC 8693 exchange #2: extension remints on top of #1, same aud/scope.
+  │  RFC 8693 exchange #2: extension remints on top of #1, re-audiences to
+  │  the real final resource order-status-agent (same scope).
   │  Authorization header carries a separate Google credential for this hop.
   ▼
 Order Status Agent (Agent Runtime, native A2A executor)
   │  Validates the reminted token from the request body.
-  │  RFC 8693 exchange #3: exchanges it for the MCP server's aud/scope.
+  │  RFC 8693 exchange #3: swaps the actor to itself, re-audiences back to
+  │  the shared intermediate resource, downscoped to order:read.
   ▼
 Agent Gateway — MCP
-  │  RFC 8693 exchange #4: extension remints on top of #3.
+  │  RFC 8693 exchange #4: extension remints on top of #3, re-audiences to
+  │  the real final resource order-status-mcp-server (same scope).
   ▼
 Order Status MCP Server
   │  Validates the final token; returns order status.
 ```
 
+Support Agent's and Order Status Agent's own exchanges (#1 and #3) both target the same shared intermediate resource, `ac-google-cloud-agent-gateway` — never the real final resource directly. Only the gateway extension's exchanges (#2 and #4) ever touch the real final resources (`order-status-agent`, `order-status-mcp-server`). See [CLAUDE.md](CLAUDE.md#token-exchange--remint-pattern--4-rfc-8693-exchanges-per-request) for why.
+
 Following the diagram: the user authenticates through the Chat UI and sends a message to the Agent Bridge, which validates the token and stores it in Support Agent's session state. Support Agent performs its own RFC 8693 exchange and calls Order Status Agent over native A2A; Agent Gateway intercepts that call, remints the token again with its own actor, and separately injects a Google credential the call needs to reach a Google-hosted Agent Runtime endpoint. Order Status Agent validates the reminted token, then performs its own RFC 8693 exchange to call the Order Status MCP Server; Agent Gateway intercepts that call too and remints once more before the MCP server validates the final token and returns the order.
 
 ## Token Chain
 
-Every hop gets a **freshly reminted** token, not just a validated passthrough — Support Agent and Order Status Agent each exchange for the next hop's audience, and the gateway extension exchanges *again* on top of that with its own actor before forwarding. The block below is a real, decoded token chain captured end to end from a live run (`ORD-123`, browser through to the MCP server):
+Every hop gets a **freshly reminted** token, not just a validated passthrough — Support Agent and Order Status Agent each exchange for the shared intermediate resource, and the gateway extension exchanges *again* on top of that with its own actor, to the real final resource, before forwarding. The block below is a real, decoded token chain captured end to end from a live run (`ORD-123`, browser through to the MCP server) — client IDs are real (they're not secrets; see the table in [CLAUDE.md](CLAUDE.md#pingone-setup--configuring-the-act-claim-delegation-proof)), `sub` is genericized since it's a real user identifier, and `iat`/`exp`/`jti`/`sid` are omitted since they're just noise for this purpose:
 
-**0. Raw browser token** — issued at PKCE login. The Chat UI's SPA client requests `order-status:invoke` scope directly, so PingOne has already derived `aud=order-status-agent` from that scope before any exchange happens:
+**0. Raw browser token** — issued at PKCE login. The Chat UI's SPA client requests `order-status:invoke` scope directly, so PingOne has already derived `aud=order-status-agent` from that scope before any exchange happens. `may_act` names Support Agent as the only actor this token may be exchanged with next — that's what makes hop 1's `act` claim below possible:
 ```json
 {
   "sub": "<user-id>",
-  "client_id": "<chat-ui-client-id>",
+  "client_id": "0800e2cb-cfb8-46bb-8a5a-0f2c6ced2b0a",
   "aud": ["order-status-agent"],
-  "scope": "order-status:invoke openid profile email"
+  "scope": "order-status:invoke openid profile email",
+  "may_act": {"sub": "2fe7b82c-8739-420c-8790-401d4a6c2065"}
 }
 ```
 
-**1. Support Agent's exchange** (hop 1 of 4) — minted by Support Agent via RFC 8693, sent in the outbound native A2A request body:
+**1. Support Agent's exchange** (hop 1 of 4) — minted by Support Agent via RFC 8693, sent in the outbound native A2A request body. Targets the **shared intermediate resource** `ac-google-cloud-agent-gateway`, not `order-status-agent` directly:
 - Still represents the user (`sub`)
-- Minted by Support Agent now, not the Chat UI (`client_id`)
-- Same audience/scope as the raw token — this exchange swaps the actor, not the resource
+- `act.sub` names Support Agent as the party that performed this exchange — proven by PingOne itself, not just asserted by the client
+- `may_act.sub` licenses the gateway extension as the only actor allowed to exchange this token further, for hop 2
 ```json
 {
   "sub": "<user-id>",
-  "client_id": "<support-agent-client-id>",
-  "aud": ["order-status-agent"],
-  "scope": "order-status:invoke"
+  "client_id": "2fe7b82c-8739-420c-8790-401d4a6c2065",
+  "aud": ["ac-google-cloud-agent-gateway"],
+  "scope": "order-status:invoke",
+  "act": {"sub": "2fe7b82c-8739-420c-8790-401d4a6c2065"},
+  "may_act": {"sub": "fbd9fb33-9134-4dc3-b2b1-3411bb8cf336"}
 }
 ```
 
-**2. Gateway remint, A2A hop** (hop 2 of 4) — minted by the extension service via RFC 8693 on top of token 1, for the same audience/scope. This is the token Order Status Agent actually validates:
+**2. Gateway remint, A2A hop** (hop 2 of 4) — minted by the extension service via RFC 8693 on top of token 1, re-audienced to the **real final resource** `order-status-agent`. This is the token Order Status Agent actually validates:
 - Still represents the user (`sub`)
-- Minted by the extension service now (`client_id`)
+- `act.sub` names the extension — matches token 1's `may_act`, which is why this exchange was permitted
+- `may_act.sub` licenses Order Status Agent as the only actor allowed to exchange this token further, for hop 3
 - Carried in the A2A request **body** (`message.metadata.delegatedAuthorization`), not a header — `Authorization` on this hop instead carries a Google-minted credential, since the target is a Google-hosted `aiplatform.googleapis.com` surface with its own IAM check, independent of PingOne delegation
 ```json
 {
   "sub": "<user-id>",
-  "client_id": "<ext-svc-client-id>",
+  "client_id": "fbd9fb33-9134-4dc3-b2b1-3411bb8cf336",
   "aud": ["order-status-agent"],
-  "scope": "order-status:invoke"
+  "scope": "order-status:invoke",
+  "act": {"sub": "fbd9fb33-9134-4dc3-b2b1-3411bb8cf336"},
+  "may_act": {"sub": "6f716c87-e33d-4981-b632-6dd357f03f14"}
 }
 ```
 
-**3. Order Status Agent's exchange** (hop 3 of 4) — minted by Order Status Agent via RFC 8693 after validating token 2, attached to the outbound MCP request:
+**3. Order Status Agent's exchange** (hop 3 of 4) — minted by Order Status Agent via RFC 8693 after validating token 2, attached to the outbound MCP request. Targets the **shared intermediate resource** again, downscoped to `order:read`:
 - Still represents the user (`sub`)
-- Minted by Order Status Agent now (`client_id`)
-- Re-audienced to the MCP server and downscoped
+- `act.sub` names Order Status Agent — matches token 2's `may_act`
+- `may_act.sub` licenses the gateway extension again, for hop 4
 ```json
 {
   "sub": "<user-id>",
-  "client_id": "<order-status-agent-client-id>",
-  "aud": ["order-status-mcp-server"],
-  "scope": "order:read"
+  "client_id": "6f716c87-e33d-4981-b632-6dd357f03f14",
+  "aud": ["ac-google-cloud-agent-gateway"],
+  "scope": "order:read",
+  "act": {"sub": "6f716c87-e33d-4981-b632-6dd357f03f14"},
+  "may_act": {"sub": "fbd9fb33-9134-4dc3-b2b1-3411bb8cf336"}
 }
 ```
 
-**4. Gateway remint, MCP hop** (hop 4 of 4) — minted by the extension service via RFC 8693 on top of token 3. This is the token the MCP server actually validates:
+**4. Gateway remint, MCP hop** (hop 4 of 4) — minted by the extension service via RFC 8693 on top of token 3, re-audienced to the **real final resource** `order-status-mcp-server`. This is the token the MCP server actually validates, and the chain ends here — no `may_act`, since nothing is ever exchanged further:
 - Still represents the user (`sub`)
-- Minted by the extension service again (`client_id`) — same client as token 2, a different hop
+- `act.sub` names the extension — matches token 3's `may_act`
 ```json
 {
   "sub": "<user-id>",
-  "client_id": "<ext-svc-client-id>",
+  "client_id": "fbd9fb33-9134-4dc3-b2b1-3411bb8cf336",
   "aud": ["order-status-mcp-server"],
-  "scope": "order:read"
+  "scope": "order:read",
+  "act": {"sub": "fbd9fb33-9134-4dc3-b2b1-3411bb8cf336"}
 }
 ```
 
-**Note on the `act` claim:** unlike a PingOne environment configured to populate `act` on exchange, this one doesn't — confirmed by decoding all five tokens above from a real run. The delegation chain is still fully attributable: `sub` stays the user across every hop, and `client_id` names exactly which party minted each token. Order Status Agent's (currently disabled) actor check already falls back to `client_id` for this reason — see [CLAUDE.md](CLAUDE.md) for the validation model in full.
+**On the `act`/`may_act` claims:** this PingOne environment does populate them, once the resources involved (`ac-google-cloud-agent-gateway`, `order-status-agent`, `order-status-mcp-server`) each have the right attribute mappings — see [CLAUDE.md](CLAUDE.md#pingone-setup--configuring-the-act-claim-delegation-proof) for the exact expressions and the debugging path that found the gaps. Every `act` claim above is checked by PingOne itself at exchange time (required attributes fail the exchange closed rather than minting an unproven delegation), not just asserted by whichever service is calling — that's what makes this a stronger attestation than `client_id` alone.
 
 ## Components
 

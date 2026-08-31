@@ -51,9 +51,9 @@ As a PingOne administrator, add a custom resource for the Order Status Agent:
 1. Click the gear icon next to the `sub` attribute to open the Advanced Expressions modal.
 2. Enter the following and click **Save**:
    ```text
-   #root.context.requestData.subjectToken.sub
+   (#root.context.requestData.grantType == "client_credentials") ? "no-subject" : #root.context.requestData.subjectToken.sub
    ```
-   This is what keeps the customer's identity intact through both exchanges on this resource — without it, `sub` on the exchanged token could default to something other than the original user.
+   The `subjectToken.sub` half is what keeps the customer's identity intact through both exchanges on this resource — without it, `sub` on the exchanged token could default to something other than the original user. **The `client_credentials` branch is not optional**: the gateway extension's own actor-token fetch for the A2A scope (`order-status:invoke`) is a plain `client_credentials` request against this same resource, and a `client_credentials` grant has no `subjectToken` at all — leaving this expression unconditional 400s that call with `sub is configured as required for the Access token but does not have a value`, which then blocks every hop after it.
 3. Click **Add** to add another attribute. In the **Attribute** field, enter `act`, then click the gear icon to open the Advanced Expressions modal.
 4. Enter the following, click **Save**, and select the checkbox to make `act` **required**:
    ```text
@@ -80,3 +80,5 @@ As a PingOne administrator, add a custom resource for the Order Status Agent:
 4. Click **Save**.
 
 See [the gateway extension's README](../agent-gateway-extension-service/README.md#pingone-resource-setup) for the shared intermediate `ac-google-cloud-agent-gateway` resource both agents' own exchanges target, [order-status-mcp-server's README](../order-status-mcp-server/README.md#pingone-resource-setup) for the final MCP-hop resource, and [CLAUDE.md](../../CLAUDE.md) for how to verify the full 4-hop `act` chain once all three are configured.
+
+**Critical, easy to get backwards:** this agent's own PingOne *application* (client ID `6f716c87-e33d-4981-b632-6dd357f03f14`) must be granted the `order:read` scope **from the `ac-google-cloud-agent-gateway` resource**, not from `order-status-mcp-server` — even though `order-status-mcp-server` is the resource this agent's `.env` (`MCP_ORDER_STATUS_SCOPE`) and its own exchange call ultimately care about. `order:read` exists as two separate scope objects with the same name, one per resource; PingOne only lets an application hold one copy at a time. Granting the wrong copy doesn't error anywhere — the `client_credentials` actor-token fetch still "succeeds" (just against the wrong resource), and this agent's own token-exchange call (which explicitly sets `audience=ac-google-cloud-agent-gateway`) silently resolves to whichever resource the grant actually points at instead, ignoring the requested audience. The failure only shows up one hop later, as the extension's MCP-hop exchange 400ing with `act is configured as required... does not have a value`. Check **Applications → Order Status Agent → Resources** in the console directly — don't infer this from `.env` alone.

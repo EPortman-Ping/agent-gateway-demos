@@ -63,7 +63,7 @@ Create a **Worker** application in PingOne:
 Create an **OIDC Web App application** in PingOne:
 - **Name:** AOBOU Agent Gateway Extension
 - **Grant Types:** enable both **Client Credentials** and **Token Exchange**
-- Assign it the `AOBOU Google Cloud Agent Gateway` resource so it may request the `stripe_mcp:invoke` scope
+- Assign it the `AOBOU Stripe MCP Server` resource so it may request the `stripe_mcp:invoke` scope
 
 ![Token Exchange Application Config](../../../../_docs/agent-on-behalf-of-user/pingone/exchange-application-config.png)
 
