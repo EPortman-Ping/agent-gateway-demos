@@ -1,6 +1,6 @@
 # Chat UI
 
-A React/Vite single-page app. Users log in via PingOne PKCE (Authorization Code + PKCE), then chat with the Financial Agent.
+A React/Vite single-page app. Users log in via PingOne PKCE (Authorization Code + PKCE), then chat with the Financial Agent via the Agent Bridge.
 
 ## Configure
 
@@ -12,6 +12,8 @@ Create a **Single Page App** in PingOne:
 - Redirect URI: your Cloud Run URL
 - Signoff URI: your Cloud Run URL
 - Scopes: `openid stripe_mcp:invoke`
+
+![Chat UI PingOne Config](../../../../_docs/agent-on-behalf-of-user/pingone/chat-ui-config.png)
 
 **2. Fill in `.env`:**
 

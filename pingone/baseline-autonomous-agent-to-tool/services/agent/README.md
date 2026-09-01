@@ -6,7 +6,7 @@ The agent authenticates to PingOne as its **own** client and sends that token as
 
 ## Configure
 
-**1. Create the agent's PingOne application**
+**1. Create the agent's PingOne AI Agent**
 
 - **Name:** BAATT CRM Agent
 - **Grant type:** Client Credentials

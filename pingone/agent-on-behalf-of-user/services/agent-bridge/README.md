@@ -6,7 +6,9 @@ A FastAPI Cloud Run service that acts as the entry point for the Chat UI. It:
 2. Creates (or reuses) an ADK session with `user_token` in state
 3. Invokes Agent Runtime and streams the response back
 
-The bridge holds no PingOne credentials and performs no token exchange — it simply validates the inbound token and passes it through to the agent via session state.
+The bridge holds no PingOne credentials and performs no token exchange - it simply validates the inbound token and passes it through to the agent via session state.
+
+**Session reuse is per-instance.** The bridge caches each user's ADK session ID in memory (one `sessions.create` call, then reuse). A second bridge instance would create its own session for the same user, losing conversation continuity between them. The stateless alternative - listing sessions per request - was tried and reverted: Agent Runtime's `sessions.list` is quota-limited in this project, and putting it on every chat message failed chats under load. For the demo's single-user, single-instance usage this is a non-issue; production would move the cache to a shared store (Firestore/Memorystore).
 
 ## Configure
 

@@ -4,38 +4,26 @@ An Envoy `ext_proc` gRPC handler that the Agent Gateway calls on every request o
 
 For requests bound to the supply chain MCP tool it:
 1. Validates the agent's delegated token: `iss`, `aud`, and `scope`
-2. On `tools/call` requests, calls PingOne Authorize with compound attributes; non-`tools/call` requests (initialize, tools/list) skip Authorize
+2. On `tools/call` requests, calls PingOne Authorize with the agent's identity and the request hour; non-`tools/call` requests (initialize, tools/list) skip Authorize
 3. On PERMIT, performs an RFC 8693 exchange to produce a tool-audienced token, then injects it as `Authorization: Bearer` before forwarding the request to the supply chain MCP tool
 
 ## Configure
 
 ### 1. PingOne Authorize - Trust Framework
 
-In **Authorization → Trust Framework**, define the request arrtibutes that PingOne Authorize will use to make a decsion.
+In **Authorization → Trust Framework**, define the request attributes that PingOne Authorize will use to make a decision.
+
 | Attribute | Type | Resolver Parameter |
 |---|---|---|
 | `agent_client_id` | String | `agent_client_id` |
-| `quantity` | Number | `quantity` |
 | `request_hour` | Number | `request_hour` |
-
-![PingOne Authorize Trust Framework Attributes](../../../../_docs/baseline-autonomous-agent-to-tool/pingone/authorize-trust-framework-attributes.png)
-
 
 ### 2. PingOne Authorize - Policies
 
-In **Authorization → Policies**, create a Policy Set named `BAATT Agent Gateway Policies` with combining algorithm **DenyOverrides** (`Unless one decision is deny, the decision will be permit`). Add these 3 child policies:
+In **Authorization → Policies**, create a Policy Set named `BAATT Agent Gateway Policies` with combining algorithm **DenyOverrides** (`Unless one decision is deny, the decision will be permit`). Under DenyOverrides, unmatched requests default to permit — so the set is deny rules only:
 
-**Policy 1: Agent-to-Tool Access Control** — combining: DenyOverrides
-- Rule `Permit CRM Agent`
-- Rule `Deny All other agents`
-
-**Policy 2: Restock Quantity Limit** — combining: DenyOverrides
-- Rule `Deny Excessive Quantity`
-- Rule `Permit Normal Quantity`
-
-**Policy 3: Business Hours Only** — combining: DenyOverrides
-- Rule `Deny Outside Business Hours`
-- Rule `Permit During Business Hours`
+- `Deny other agents` — when `agent_client_id` is not the CRM agent's client ID
+- `Deny outside business hours` — when `request_hour` is not between 8 and 17 (Pacific)
 
 ![PingOne Authorize Policies](../../../../_docs/baseline-autonomous-agent-to-tool/pingone/authorize-policies.png)
 
@@ -45,10 +33,10 @@ Go to **Authorization → Version History** and publish the latest version.
 
 Note the decision endpoint URL from **Authorization → Decision Endpoints**.
 
-### 5. PingOne Authorize - Worker App
+### 4. PingOne Authorize - Worker App
 
 Create a **Worker** application in PingOne:
-- **Name:** BAATT PingOne AUthorize Worker App
+- **Name:** BAATT PingOne Authorize Worker App
 - **Grant type:** Client Credentials
 - **Roles:** Grant `Environment Admin` scoped to this environment
 
@@ -63,7 +51,7 @@ Create an **OIDC Web App application** in PingOne
 
 ![Token Exchange Application Config](../../../../_docs/baseline-autonomous-agent-to-tool/pingone/exchange-application-config.png)
 
-### 6. Configure environment values:
+## Configure environment values
 
 ```bash
 cp .env.sample .env

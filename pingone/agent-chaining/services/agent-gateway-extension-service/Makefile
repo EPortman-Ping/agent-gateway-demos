@@ -18,7 +18,9 @@ require-env:
 	@test -n "$(AGENT_GATEWAY_AUDIENCE)" || { echo "AGENT_GATEWAY_AUDIENCE not set"; exit 1; }
 	@test -n "$(A2A_TARGET_URL)" || { echo "A2A_TARGET_URL not set"; exit 1; }
 	@test -n "$(MCP_TARGET_URL)" || { echo "MCP_TARGET_URL not set"; exit 1; }
-	@test "$(AUTHZ_MODE)" = "permit-all" || { test -n "$(AUTHZ_DECISION_ENDPOINT)" && test -n "$(AUTHZ_CLIENT_ID)" && test -n "$(AUTHZ_CLIENT_SECRET)" || { echo "Set AUTHZ_MODE=permit-all or configure PingOne Authorize"; exit 1; }; }
+	@test -n "$(AUTHZ_DECISION_ENDPOINT)" || { echo "AUTHZ_DECISION_ENDPOINT not set — PingOne Authorize is mandatory (no bypass mode)"; exit 1; }
+	@test -n "$(AUTHZ_CLIENT_ID)" || { echo "AUTHZ_CLIENT_ID not set — PingOne Authorize worker app client id required"; exit 1; }
+	@test -n "$(AUTHZ_CLIENT_SECRET)" || { echo "AUTHZ_CLIENT_SECRET not set — PingOne Authorize worker app secret required"; exit 1; }
 
 build:
 	go build ./...
@@ -41,5 +43,5 @@ deploy: require-env setup push
 	gcloud run deploy $(GC_CLOUD_RUN_SERVICE_NAME) \
 		--image $(IMAGE) --region $(GC_REGION) --service-account $(SA) \
 		--allow-unauthenticated --ingress=all --port 50051 --use-http2 \
-		--set-env-vars "GRPC_PORT=50051,AUTHZ_MODE=$(AUTHZ_MODE),IDP_TOKEN_ENDPOINT=$(IDP_TOKEN_ENDPOINT),IDP_CLIENT_ID=$(IDP_CLIENT_ID),AGENT_GATEWAY_AUDIENCE=$(AGENT_GATEWAY_AUDIENCE),A2A_TARGET_URL=$(A2A_TARGET_URL),A2A_REQUIRED_AUDIENCE=$(A2A_REQUIRED_AUDIENCE),A2A_REQUIRED_SCOPE=$(A2A_REQUIRED_SCOPE),MCP_TARGET_URL=$(MCP_TARGET_URL),MCP_REQUIRED_AUDIENCE=$(MCP_REQUIRED_AUDIENCE),MCP_REQUIRED_SCOPE=$(MCP_REQUIRED_SCOPE),AUTHZ_DECISION_ENDPOINT=$(AUTHZ_DECISION_ENDPOINT),AUTHZ_CLIENT_ID=$(AUTHZ_CLIENT_ID)" \
+		--set-env-vars "GRPC_PORT=50051,IDP_TOKEN_ENDPOINT=$(IDP_TOKEN_ENDPOINT),IDP_CLIENT_ID=$(IDP_CLIENT_ID),AGENT_GATEWAY_AUDIENCE=$(AGENT_GATEWAY_AUDIENCE),A2A_TARGET_URL=$(A2A_TARGET_URL),A2A_REQUIRED_AUDIENCE=$(A2A_REQUIRED_AUDIENCE),A2A_REQUIRED_SCOPE=$(A2A_REQUIRED_SCOPE),MCP_TARGET_URL=$(MCP_TARGET_URL),MCP_REQUIRED_AUDIENCE=$(MCP_REQUIRED_AUDIENCE),MCP_REQUIRED_SCOPE=$(MCP_REQUIRED_SCOPE),AUTHZ_DECISION_ENDPOINT=$(AUTHZ_DECISION_ENDPOINT),AUTHZ_CLIENT_ID=$(AUTHZ_CLIENT_ID)" \
 		--set-secrets "IDP_CLIENT_SECRET=$(SECRET):latest,AUTHZ_CLIENT_SECRET=$(AUTHZ_SECRET):latest"

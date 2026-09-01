@@ -73,21 +73,36 @@ func (v *tokenValidator) middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		if err := v.verify(r.Context(), strings.TrimPrefix(authHeader, "Bearer ")); err != nil {
+		tok, err := v.verify(r.Context(), strings.TrimPrefix(authHeader, "Bearer "))
+		if err != nil {
 			log.Printf("[SupplyChain] REJECT — %v", err)
 			http.Error(w, "invalid token: "+err.Error(), http.StatusForbidden)
 			return
 		}
 
-		log.Printf("[SupplyChain] Token verified — scope %q present, forwarding to MCP handler", v.requiredScope)
+		// Log the verified identity: sub (who the call is for), act.sub (who
+		// acted for it — the delegation proof), and the granted scope. Raw
+		// tokens are never logged.
+		var actSub string
+		if act, ok := tok.Get("act"); ok {
+			if m, ok := act.(map[string]interface{}); ok {
+				if s, ok := m["sub"].(string); ok {
+					actSub = s
+				}
+			}
+		}
+		sub, _ := tok.Get("sub")
+		aud, _ := tok.Get("aud")
+		scope, _ := tok.Get("scope")
+		log.Printf("[SupplyChain] Token verified — sub=%v aud=%v act.sub=%s scope=%q forwarding to MCP handler", sub, aud, actSub, scope)
 		next.ServeHTTP(w, r)
 	})
 }
 
-func (v *tokenValidator) verify(ctx context.Context, raw string) error {
+func (v *tokenValidator) verify(ctx context.Context, raw string) (jwt.Token, error) {
 	set, err := v.keys.Get(ctx, v.jwksURL)
 	if err != nil {
-		return fmt.Errorf("load JWKS: %w", err)
+		return nil, fmt.Errorf("load JWKS: %w", err)
 	}
 
 	// PingOne's JWKS keys omit the "alg" field — infer it from the key type,
@@ -99,13 +114,13 @@ func (v *tokenValidator) verify(ctx context.Context, raw string) error {
 		jwt.WithAudience(v.audience),
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if !hasScope(tok, v.requiredScope) {
-		return fmt.Errorf("missing required scope %q", v.requiredScope)
+		return nil, fmt.Errorf("missing required scope %q", v.requiredScope)
 	}
-	return nil
+	return tok, nil
 }
 
 // hasScope checks both the space-delimited "scope" string claim and the "scp"

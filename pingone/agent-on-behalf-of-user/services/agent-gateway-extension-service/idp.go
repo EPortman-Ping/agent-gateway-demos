@@ -116,7 +116,6 @@ func (c *idpClient) exchangeForTool(subjectToken string) (string, error) {
 	}
 	c.cache[subjectToken] = cachedToken{token: tok, expires: now.Add(ttl)}
 	log.Printf("[ExtSvc] tool token minted (ttl %v)", ttl)
-	log.Printf("[TOKEN:tool:raw] %s", tok)
 	return tok, nil
 }
 

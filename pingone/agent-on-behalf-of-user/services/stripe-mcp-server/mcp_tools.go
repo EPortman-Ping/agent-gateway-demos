@@ -25,13 +25,13 @@ func listStripeProductsTool() (mcp.Tool, server.ToolHandlerFunc) {
 	)
 	handler := func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		email, _ := ctx.Value(ctxKeyCallerEmail).(string)
-		log.Printf("tool=list_stripe_products — caller=%s", email)
+		log.Printf("[SupplyChain] tool=list_stripe_products — caller=%s", email)
 		products, err := fetchProductsFromStripe()
 		if err != nil {
-			log.Printf("tool=list_stripe_products — error: %v", err)
+			log.Printf("[SupplyChain] tool=list_stripe_products — error: %v", err)
 			return mcp.NewToolResultError(fmt.Sprintf("stripe error: %v", err)), nil
 		}
-		log.Printf("tool=list_stripe_products — success: caller=%s", email)
+		log.Printf("[SupplyChain] tool=list_stripe_products — success: caller=%s", email)
 		return mcp.NewToolResultText(products), nil
 	}
 	return tool, handler
@@ -51,13 +51,13 @@ func getStripeProductTool() (mcp.Tool, server.ToolHandlerFunc) {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		log.Printf("tool=get_stripe_product — caller=%s product_id=%s", email, productID)
+		log.Printf("[SupplyChain] tool=get_stripe_product — caller=%s product_id=%s", email, productID)
 		result, err := fetchProduct(productID)
 		if err != nil {
-			log.Printf("tool=get_stripe_product — error: %v", err)
+			log.Printf("[SupplyChain] tool=get_stripe_product — error: %v", err)
 			return mcp.NewToolResultError(fmt.Sprintf("stripe error: %v", err)), nil
 		}
-		log.Printf("tool=get_stripe_product — success caller=%s product_id=%s", email, productID)
+		log.Printf("[SupplyChain] tool=get_stripe_product — success caller=%s product_id=%s", email, productID)
 		return mcp.NewToolResultText(result), nil
 	}
 	return tool, handler
@@ -72,11 +72,11 @@ func getStripeCustomerTool() (mcp.Tool, server.ToolHandlerFunc) {
 		if !ok || customerEmail == "" {
 			return mcp.NewToolResultError("could not determine user email from auth token"), nil
 		}
-		log.Printf("tool=get_stripe_customer — caller=%s", customerEmail)
+		log.Printf("[SupplyChain] tool=get_stripe_customer — caller=%s", customerEmail)
 
 		customer, err := lookupCustomerByEmail(customerEmail)
 		if err != nil {
-			log.Printf("tool=get_stripe_customer — error: %v", err)
+			log.Printf("[SupplyChain] tool=get_stripe_customer — error: %v", err)
 			return mcp.NewToolResultError(fmt.Sprintf("customer lookup error: %v", err)), nil
 		}
 
@@ -87,7 +87,7 @@ func getStripeCustomerTool() (mcp.Tool, server.ToolHandlerFunc) {
 		if pmIter.Next() {
 			pm := pmIter.PaymentMethod()
 			if pm.Card != nil {
-				log.Printf("tool=get_stripe_customer — success: caller=%s customer_id=%s card=****%s", customerEmail, customer.ID, pm.Card.Last4)
+				log.Printf("[SupplyChain] tool=get_stripe_customer — success: caller=%s customer_id=%s card=****%s", customerEmail, customer.ID, pm.Card.Last4)
 				return mcp.NewToolResultText(fmt.Sprintf(
 					"customer_id=%s email=%s card_brand=%s card_last4=%s card_exp=%02d/%d",
 					customer.ID, customer.Email,
@@ -97,10 +97,10 @@ func getStripeCustomerTool() (mcp.Tool, server.ToolHandlerFunc) {
 			}
 		}
 		if err := pmIter.Err(); err != nil {
-			log.Printf("tool=get_stripe_customer — error: %v", err)
+			log.Printf("[SupplyChain] tool=get_stripe_customer — error: %v", err)
 			return mcp.NewToolResultError(fmt.Sprintf("payment method lookup error: %v", err)), nil
 		}
-		log.Printf("tool=get_stripe_customer — no payment method on file for %s", customerEmail)
+		log.Printf("[SupplyChain] tool=get_stripe_customer — no payment method on file for %s", customerEmail)
 		return mcp.NewToolResultError(fmt.Sprintf("no saved payment method on file for %s", customerEmail)), nil
 	}
 	return tool, handler
@@ -139,26 +139,26 @@ func createStripePaymentIntentTool() (mcp.Tool, server.ToolHandlerFunc) {
 		if quantity < 1 {
 			quantity = 1
 		}
-		log.Printf("tool=create_stripe_payment_intent — caller=%s product_id=%s quantity=%d total_price=%.2f", customerEmail, productID, quantity, req.GetFloat("total_price", 0))
+		log.Printf("[SupplyChain] tool=create_stripe_payment_intent — caller=%s product_id=%s quantity=%d total_price=%.2f", customerEmail, productID, quantity, req.GetFloat("total_price", 0))
 
 		customer, err := lookupCustomerByEmail(customerEmail)
 		if err != nil {
-			log.Printf("tool=create_stripe_payment_intent — error: %v", err)
+			log.Printf("[SupplyChain] tool=create_stripe_payment_intent — error: %v", err)
 			return mcp.NewToolResultError(fmt.Sprintf("customer lookup error: %v", err)), nil
 		}
 
 		paymentMethodID := resolvePaymentMethod(customer)
 		if paymentMethodID == "" {
-			log.Printf("tool=create_stripe_payment_intent — no payment method for %s", customerEmail)
+			log.Printf("[SupplyChain] tool=create_stripe_payment_intent — no payment method for %s", customerEmail)
 			return mcp.NewToolResultError(fmt.Sprintf("no saved payment method on file for %s — customer must add a card first", customerEmail)), nil
 		}
 
 		receipt, err := chargeProduct(productID, customer.ID, paymentMethodID, customerEmail, quantity)
 		if err != nil {
-			log.Printf("tool=create_stripe_payment_intent — error: %v", err)
+			log.Printf("[SupplyChain] tool=create_stripe_payment_intent — error: %v", err)
 			return mcp.NewToolResultError(fmt.Sprintf("stripe payment error: %v", err)), nil
 		}
-		log.Printf("tool=create_stripe_payment_intent — success: caller=%s product_id=%s quantity=%d", customerEmail, productID, quantity)
+		log.Printf("[SupplyChain] tool=create_stripe_payment_intent — success: caller=%s product_id=%s quantity=%d", customerEmail, productID, quantity)
 		return mcp.NewToolResultText(receipt), nil
 	}
 	return tool, handler

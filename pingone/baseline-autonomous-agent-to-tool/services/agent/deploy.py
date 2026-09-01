@@ -76,8 +76,16 @@ app = agent_engines.AdkApp(agent=root_agent)
 
 _config = {
     "requirements": [
-        "google-cloud-aiplatform[agent_engines,adk]>=1.126.1",
-        "google-adk>=1.18.0",
+        # Pinned exactly — an unbounded >=1.126.1 spec let a local venv resolve
+        # aiplatform 2.1.0, whose agentplatform package no longer exposes
+        # agent_engines (deploy-time failure). Same silent-drift class as the
+        # google-adk pin below.
+        "google-cloud-aiplatform[agent_engines,adk]==1.165.1",
+        # Pinned exactly — an unbounded spec let the remote build resolve adk
+        # 2.8.0 against code verified on 2.7.1, whose deployed workers died
+        # mid-stream on every successful tool call (agent-chaining journey,
+        # 2026-09-03).
+        "google-adk[a2a]==2.7.1",
         "mcp>=1.24,<2",
         "python-dotenv",
         "cloudpickle",

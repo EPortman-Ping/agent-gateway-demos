@@ -81,8 +81,10 @@ app = agent_engines.AdkApp(agent=root_agent)
 # Retry creation — after a teardown the gateway binding takes time to release.
 _config = {
     "requirements": [
-        "google-cloud-aiplatform[agent_engines,adk]>=1.126.1",
-        "google-adk>=1.18.0",
+        # Pinned exactly — unbounded specs silently drift to versions that
+        # break the engine (see journey CLAUDE.md gotchas).
+        "google-cloud-aiplatform[agent_engines,adk]==1.165.1",
+        "google-adk[a2a]==2.7.1",
         "mcp>=1.24,<2",
         "python-dotenv",
         "cloudpickle",

@@ -152,6 +152,8 @@ func (s *shim) onRequestHeaders(ctx context.Context, msg *extprocv3.HttpHeaders)
 		return passthroughHeaders(), "", "", false
 	}
 
+	log.Printf("[ExtSvc] request authority=%q path=%q", authority, path)
+
 	bearer := strings.TrimPrefix(headerValue(msg.Headers, "authorization"), "Bearer ")
 	if bearer == "" {
 		log.Printf("[ExtSvc] missing bearer token — 401")
@@ -190,6 +192,7 @@ func (s *shim) onRequestHeaders(ctx context.Context, msg *extprocv3.HttpHeaders)
 
 	serviceName := strings.SplitN(authority, ".", 2)[0]
 	log.Printf("[ExtSvc] %s %s — user=%s agent=%s email=%s", serviceName, path, userSub, agentClientID, userEmail)
+	log.Printf("[ExtSvc] injecting tool token for %s", authority)
 	return injectAuthAndEmailAndRequestBody(tok, userEmail), userSub, agentClientID, s.authz != nil
 }
 

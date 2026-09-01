@@ -68,7 +68,16 @@ def grant_egress(resource_name: str) -> None:
 client = agentplatform.Client(project=PROJECT_ID, location=REGION)
 app = root_agent
 config = {
-    "requirements": ["google-cloud-aiplatform[agent_engines,adk]>=1.165.1", "google-adk[a2a]>=2.7.1,<3", "a2a-sdk>=0.3.4,<2", "httpx", "python-dotenv", "cloudpickle", "pydantic", "python-jose[cryptography]", "sse-starlette>=2.1.0"],
+    # Pinned exactly, not >=1.165.1 — see support-agent/deploy.py's comment:
+    # an unbounded lower bound let a support-agent redeploy resolve a newer
+    # release that renamed/removed agentplatform.agent_engines, failing the
+    # deployed engine at startup. Applying the same pin here preemptively.
+    # google-adk/a2a-sdk pinned exactly: an unbounded <3/<2 spec let the
+    # support-agent's remote build silently resolve google-adk 2.8.0 (local
+    # venv had 2.7.1, the verified-working version), and its deployed workers
+    # then died mid-stream on every successful tool call. Same failure class
+    # as the aiplatform pin above.
+    "requirements": ["google-cloud-aiplatform[agent_engines,adk]==1.165.1", "google-adk[a2a]==2.7.1", "a2a-sdk==1.1.2", "httpx", "python-dotenv", "cloudpickle", "pydantic", "python-jose[cryptography]", "sse-starlette>=2.1.0"],
     "extra_packages": ["agent.py", "pingone.py", "protocol.py"],
     "staging_bucket": staging_bucket(),
     "display_name": os.environ["AGENT_DISPLAY_NAME"],

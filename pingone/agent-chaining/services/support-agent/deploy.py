@@ -58,10 +58,22 @@ client = agentplatform.Client(project=PROJECT_ID, location=REGION)
 app = agent_engines.AdkApp(agent=root_agent)
 config = {
     "requirements": [
-        "google-cloud-aiplatform[agent_engines,adk]>=1.165.1",
-        "google-adk[a2a]>=2.7.1,<3",
-        "a2a-sdk>=0.3.4,<2",
+        # Pinned exactly, not >=1.165.1 — an unbounded lower-bound spec let the
+        # remote build resolve a newer release that renamed/removed
+        # agentplatform.agent_engines, failing the deployed engine at startup
+        # with "No module named 'agentplatform.agent_engines'" even though the
+        # local venv (built at a different moment) resolved to 1.165.1 fine.
+        "google-cloud-aiplatform[agent_engines,adk]==1.165.1",
+        # Pinned exactly — an unbounded <3 spec let the remote build resolve
+        # google-adk 2.8.0 (local venv had 2.7.1, where this exact agent was
+        # verified working), and the deployed engine's workers then died
+        # mid-stream on every successful tool call (error-path tool results
+        # streamed fine; success-path runs returned zero events after the
+        # function_call event). Same failure class as the aiplatform pin below.
+        "google-adk[a2a]==2.7.1",
+        "a2a-sdk==1.1.2",
         "httpx", "python-dotenv", "cloudpickle", "pydantic",
+        "python-jose[cryptography]",
     ],
     "extra_packages": ["agent.py", "pingone.py"],
     "staging_bucket": staging_bucket(),

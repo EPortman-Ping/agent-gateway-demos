@@ -14,6 +14,9 @@ import (
 	"log"
 	"net"
 	"os"
+	// Embedded tz database — the distroless runtime ships no OS tzdata, and
+	// currentHour() resolves America/Vancouver (business-hours clock).
+	_ "time/tzdata"
 
 	"github.com/joho/godotenv"
 	"google.golang.org/grpc"

@@ -30,7 +30,7 @@ In the console: **Agent Platform → Govern → Gateways → Add gateway**.
 
 ## 3. Attach the extension service
 
-This wires the extension service to the gateway as a `CONTENT_AUTHZ` authorization extension scoped to `/mcp` — two resources: an **authorization extension** (points at your Cloud Run host) and an **authorization policy** (binds that extension to the gateway).
+This wires the extension service to the gateway as a `CONTENT_AUTHZ` authorization extension scoped to `/mcp` - two resources: an **authorization extension** (points at your Cloud Run host) and an **authorization policy** (binds that extension to the gateway).
 
 Configure and run:
 
@@ -43,17 +43,17 @@ make attach
 imports both with `gcloud`. Run `make render` alone to inspect the generated YAML
 without importing. Config:
 
-> **You'll now see two Service Extensions on the gateway — that's expected.**
+> **You'll now see two Service Extensions on the gateway - that's expected.**
 > They're complementary, not duplicates:
 >
 > | Extension | Profile | Service | Role |
 > |---|---|---|---|
-> | `aobou-agent-gateway-iap-authzextension` | `REQUEST_AUTHZ` | `iap.googleapis.com` | Google-managed, **auto-created** with the gateway. Enforces the IAP identity/egress check (`iap.egressor`) — this is the "Auth provider: Google Cloud Identity-Aware Proxy" shown on the gateway. |
+> | `aobou-agent-gateway-iap-authzextension` | `REQUEST_AUTHZ` | `iap.googleapis.com` | Google-managed, **auto-created** with the gateway. Enforces the IAP identity/egress check (`iap.egressor`) - this is the "Auth provider: Google Cloud Identity-Aware Proxy" shown on the gateway. |
 > | `aobou-ext-proc-authzext` | `CONTENT_AUTHZ` | your Cloud Run ext-svc | The one you just created. Does the PingOne token exchange and `Authorization` injection. |
 >
 > The IAP extension answers *"is this agent allowed to egress at all?"*; yours
 > answers *"mint and inject the tool credential."* Both run on every `/mcp`
-> request — leave the IAP one alone.
+> request - leave the IAP one alone.
 
 ![Agent Gateway Config](../../../../_docs/agent-on-behalf-of-user/agent-gateway-config.png)
 
@@ -61,21 +61,21 @@ without importing. Config:
 
 In **Agent Platform → Govern → Agent Registry**:
 
-- **Stripe MCP Tool** — registered under **MCP Servers** when you deployed it.
-- **PingOne** — under **Endpoints → Add endpoint**, Destination URL = `https://auth.pingone.com` (or your regional variant).
-- Google APIs (`*.mtls.googleapis.com`) — auto-created with the gateway. Leave them alone.
+- **Stripe MCP Tool** - registered under **MCP Servers** when you deployed it.
+- **PingOne** - under **Endpoints → Add endpoint**, Destination URL = `https://auth.pingone.com` (or your regional variant).
+- Google APIs (`*.mtls.googleapis.com`) - auto-created with the gateway. Leave them alone.
 
 The gateway governs **all** agent egress, so every host the agent reaches must be
 a registered destination in **Agent Platform → Govern → Agent Registry**. Two of
 those are already handled:
 
-- **MCP tool** — registered under **MCP Servers** when you deployed it (it's an
+- **MCP tool** - registered under **MCP Servers** when you deployed it (it's an
   MCP server, not an endpoint).
 - **Google APIs** (`aiplatform`, `iamcredentials`, `telemetry` on
-  `*.mtls.googleapis.com`) — **auto-created** with the gateway for the runtime's
+  `*.mtls.googleapis.com`) - **auto-created** with the gateway for the runtime's
   own egress. Leave them alone.
 
-So the only endpoint you add here is **PingOne** — under **Endpoints → Add
+So the only endpoint you add here is **PingOne** - under **Endpoints → Add
 endpoint**, Destination URL = your PingOne host (e.g. `https://auth.pingone.ca`).
 
 ![Agent Gateway Egress Destinations](../../../../_docs/agent-on-behalf-of-user/agent-gateway-egress-destinations.png)
@@ -83,4 +83,16 @@ endpoint**, Destination URL = your PingOne host (e.g. `https://auth.pingone.ca`)
 ## 5. Create the PingOne Resource for the gateway
 
 In PingOne, create a **Resource** named `AOBOU Google Cloud Agent Gateway` with the `stripe_mcp:invoke` scope and `google-agent-gateway` audience.
+
+This resource mints the agent's delegated token (the agent's RFC 8693 exchange targets it), so it must prove who delegated to whom and license the extension as the one allowed next actor. On the resource's **Attributes** tab, configure four attributes:
+
+| Attribute | Required | Advanced Expression |
+|---|---|---|
+| `sub` | no | `${(#root.context.requestData.grantType == "client_credentials") ? "no-subject" : #root.context.requestData.subjectToken.sub}` |
+| `act` | yes | `${(#root.context.requestData.grantType == "client_credentials")?"noActor":((#root.context.requestData.subjectToken.may_act.sub == #root.context.requestData.actorToken.client_id)?{"sub":#root.context.requestData.actorToken.client_id,"act":#root.context.requestData.subjectToken.act}:null)}` |
+| `may_act` | no | `${{"sub":"<EXT-SVC-CLIENT-ID>"}}` |
+| `grant_type` | no | `${#root.context.requestData.grantType}` |
+
+`sub` must be grant-type-aware: the agent's own `client_credentials` actor token (needed before it can act as an exchange actor) mints on this resource too, and that grant has no `subjectToken`. `act` is Required, which is what makes the delegation enforceable - the expression returns `null` (failing the exchange) unless the subject token's `may_act.sub` matches the actor token's `client_id`, and otherwise nests the subject token's own `act` one level deeper. `may_act` is a flat constant licensing the extension service as the sole next actor. `grant_type` makes every token self-describe how it was minted.
+
 ![Agent Gateway Resource Config](../../../../_docs/agent-on-behalf-of-user/pingone/agent-gateway-resource-config.png)

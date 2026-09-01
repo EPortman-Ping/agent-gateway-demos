@@ -78,4 +78,15 @@ endpoint**, Destination URL = your PingOne host (e.g. `https://auth.pingone.ca`)
 ## 5. Create the PingOne Resource for the gateway
 
 In PingOne, create a **Resource** named `BAATT Google Cloud Agent Gateway` with the `supply-chain:restock` scope and `google-cloud-agent-gateway` audience.
+
+This resource mints the agent's subject token, so it must license the extension as the one allowed next actor. On the resource's **Attributes** tab, configure one attribute:
+
+| Attribute | Required | Advanced Expression |
+|---|---|---|
+| `may_act` | no | `{"sub":"<EXT-SVC-CLIENT-ID>"}` |
+
+`may_act` is a flat constant naming the extension as the sole next actor — this is what the tool resource's `act` check compares against at exchange time. Nothing ever exchanges onto this resource (only `client_credentials` mints), so no `act` attribute is needed here either; the delegation proof lives entirely in the tool resource's `act` mapping, and the agent's identity rides in `client_id`.
+
+The `BAATT Supply Chain MCP Tool` resource needs the matching `act` mapping on its side — see the [supply chain MCP tool's README](../supply-chain-mcp-tool/README.md#1-create-the-supply-chain-mcp-tool-resource-in-pingone).
+
 ![Agent Gateway Resource Config](../../../../_docs/baseline-autonomous-agent-to-tool/pingone/agent-gateway-resource-config.png)

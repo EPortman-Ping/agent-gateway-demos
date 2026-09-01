@@ -106,15 +106,14 @@ func (s *shim) Process(stream extprocv3.ExternalProcessor_ProcessServer) error {
 
 		case *extprocv3.ProcessingRequest_RequestBody:
 			if needsAuthz && s.authz != nil && extractMethod(v.RequestBody.Body) == "tools/call" {
-				quantity := extractQuantity(v.RequestBody.Body)
-				log.Printf("[ExtSvc] authorize agent=%s quantity=%d hour=%d", agentClientID, quantity, currentHour())
-				permitted, err := s.authz.Decide(agentClientID, "restock", quantity, "", currentHour())
+				log.Printf("[ExtSvc] authorize agent=%s hour=%d", agentClientID, currentHour())
+				permitted, err := s.authz.Decide(agentClientID, currentHour())
 				switch {
 				case err != nil:
 					log.Printf("[ExtSvc] PingOne Authorize error: %v", err)
 					resp = denyForbidden("authorization service error")
 				case !permitted:
-					log.Printf("[ExtSvc] PingOne Authorize DENY agent=%s quantity=%d", agentClientID, quantity)
+					log.Printf("[ExtSvc] PingOne Authorize DENY agent=%s", agentClientID)
 					resp = denyForbidden("request denied by policy")
 				default:
 					log.Printf("[ExtSvc] PingOne Authorize PERMIT agent=%s", agentClientID)
@@ -225,24 +224,33 @@ func extractMethod(body []byte) string {
 }
 
 // extractQuantity returns the quantity argument from an MCP tools/call body, or 0.
-func extractQuantity(body []byte) int {
-	var rpc struct {
-		Params struct {
-			Arguments map[string]any `json:"arguments"`
-		} `json:"params"`
-	}
-	if err := json.Unmarshal(body, &rpc); err != nil {
-		return 0
-	}
-	switch q := rpc.Params.Arguments["quantity"].(type) {
-	case float64:
-		return int(q)
-	case int:
-		return q
-	}
-	return 0
-}
+// Retained for reference; the deployed policies no longer consume quantity.
+// func extractQuantity(body []byte) int {
+// 	var rpc struct {
+// 		Params struct {
+// 			Arguments map[string]any `json:"arguments"`
+// 		} `json:"params"`
+// 	}
+// 	if err := json.Unmarshal(body, &rpc); err != nil {
+// 		return 0
+// 	}
+// 	switch q := rpc.Params.Arguments["quantity"].(type) {
+// 	case float64:
+// 		return int(q)
+// 	case int:
+// 		return q
+// 	}
+// 	return 0
+// }
 
 func currentHour() int {
-	return time.Now().UTC().Hour()
+	// Business hours are Pacific-local. The distroless runtime ships no OS
+	// tzdata, so embed the tz database via _ "time/tzdata" in main.go; on
+	// zone-load failure return -1 so an unresolvable clock can never be read
+	// as in-hours (fails closed in the business-hours rule).
+	van, err := time.LoadLocation("America/Vancouver")
+	if err != nil {
+		return -1
+	}
+	return time.Now().In(van).Hour()
 }

@@ -25,8 +25,9 @@ type pingoneAuthorizeClient struct {
 }
 
 // Decide sends the request attributes to PingOne Authorize and returns true for
-// PERMIT, false for DENY or INDETERMINATE.
-func (c *pingoneAuthorizeClient) Decide(agentClientID, toolName string, quantity int, region string, requestHour int) (bool, error) {
+// PERMIT, false for DENY or INDETERMINATE. The deployed policies consume only
+// the agent's identity and the request hour (business hours + agent allow-list).
+func (c *pingoneAuthorizeClient) Decide(agentClientID string, requestHour int) (bool, error) {
 	tok, err := c.accessToken()
 	if err != nil {
 		return false, fmt.Errorf("authorize token: %w", err)
@@ -37,9 +38,6 @@ func (c *pingoneAuthorizeClient) Decide(agentClientID, toolName string, quantity
 	}{
 		Parameters: map[string]any{
 			"agent_client_id": agentClientID,
-			"tool_name":       toolName,
-			"quantity":        quantity,
-			"region":          region,
 			"request_hour":    requestHour,
 		},
 	})

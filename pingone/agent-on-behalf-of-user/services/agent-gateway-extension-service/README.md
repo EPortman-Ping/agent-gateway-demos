@@ -10,13 +10,7 @@ For requests bound to the Stripe MCP tool it:
 
 ## Configure
 
-### 1. Create `stripe_customers` group in PingOne
-
-In **Directory → Groups**, create a group called `stripe_customers` and add any PingOne users who have a matching customer record in Stripe (matched by email).
-
-![PingOne Group Config](../../../../_docs/agent-on-behalf-of-user/pingone/group-config.png)
-
-### 2. PingOne Authorize - Trust Framework
+### 1. PingOne Authorize - Trust Framework
 
 In **Authorization → Trust Framework**, define the request attributes that PingOne Authorize will use to make a decision.
 | Attribute | Type | Resolver Parameter |
@@ -26,30 +20,28 @@ In **Authorization → Trust Framework**, define the request attributes that Pin
 | `tool_name` | String | `tool_name` |
 | `amount_cents` | Number | `amount_cents` |
 
-![PingOne Authorize Trust Framework Attributes](../../../../_docs/agent-on-behalf-of-user/pingone/authorize-trust-framework-attributes.png)
-
-### 3. PingOne Authorize - Policies
+### 2. PingOne Authorize - Policies
 
 In **Authorization → Policies**, create a Policy Set named `AOBOU Agent Gateway Policies` with combining algorithm **DenyOverrides** (`Unless one decision is deny, the decision will be permit`). Add these 3 child policies:
 
-**Policy 1: Agent Identity Check** — combining: Unless one decision is permit, the decision will be deny
-- Rule `Permit OBO Agent` — condition: `agent_client_id` equals your AOBOU agent's PingOne client ID
+**Policy 1: Only Permit Delegated Agent** - combining: Unless one decision is deny, the decision will be permit
+- Rule `Only Permit Stripe Finance Agent` - condition: `Agent Client ID` does not equal <FINANCE_AGENT_CLIENT_ID>
 
-**Policy 2: User Authorization Check** — combining: Unless one decision is permit, the decision will be deny
-- Rule `Permit stripe_customers Group Member` — condition: `user_sub` is a member of the `stripe_customers` group
+**Policy 2: Only Permit Users in Stripe Group** - combining: Unless one decision is deny, the decision will be permit
+- Rule `Only Permit stripe_customers Group Member` - condition: `User Sub` is not member of `stripe_customers`
 
-**Policy 3: Payment Amount Limit** — combining: Unless one decision is deny, the decision will be permit
-- Rule `Deny Amounts Above Limit` — condition: `tool_name` equals `create_stripe_payment_intent` AND `amount_cents` is greater than your threshold (e.g. `100000` = $1,000)
+**Policy 3: Only Permit Stripe Purchases below $100** - combining: Unless one decision is deny, the decision will be permit
+- Rule `Only Permit Stripe Purchases below $100` - condition: `Tool Name` equals `create_stripe_payment_intent`, `Amount Cents` is greater than <your threshold, e.g. `100000` = $1,000>
 
 ![PingOne Authorize Policies](../../../../_docs/agent-on-behalf-of-user/pingone/authorize-policies.png)
 
-### 4. PingOne Authorize - Publish and grab decision endpoint
+### 3. PingOne Authorize - Publish and grab decision endpoint
 
 Go to **Authorization → Version History** and publish the latest version.
 
 Note the decision endpoint URL from **Authorization → Decision Endpoints**.
 
-### 5. PingOne Authorize - Worker App
+### 4. PingOne Authorize - Worker App
 
 Create a **Worker** application in PingOne:
 - **Name:** AOBOU PingOne Authorize Worker App
@@ -58,7 +50,7 @@ Create a **Worker** application in PingOne:
 
 ![PingOne Authorize Worker App Config](../../../../_docs/agent-on-behalf-of-user/pingone/authorize-application-config.png)
 
-### 6. PingOne Token Exchange - OIDC Web App
+### 5. PingOne Token Exchange - OIDC Web App
 
 Create an **OIDC Web App application** in PingOne:
 - **Name:** AOBOU Agent Gateway Extension
@@ -67,7 +59,7 @@ Create an **OIDC Web App application** in PingOne:
 
 ![Token Exchange Application Config](../../../../_docs/agent-on-behalf-of-user/pingone/exchange-application-config.png)
 
-### 7. Configure environment values
+### 6. Configure environment values
 
 ```bash
 cp .env.sample .env
@@ -80,8 +72,8 @@ cp .env.sample .env
 | `IDP_TOKEN_ENDPOINT` | `https://auth.pingone.<region>/<env-id>/as/token` |
 | `IDP_CLIENT_ID` | Token-exchange app Client ID |
 | `IDP_CLIENT_SECRET` | Token-exchange app Client Secret |
-| `IDP_SCOPE` | Scope the inbound delegated token must carry, e.g. `stripe_mcp:invoke` |
-| `IDP_REQUIRED_AUDIENCE` | Expected `aud` on the inbound delegated token, e.g. `stripe-mcp-server` |
+| `IDP_SCOPE` | Scope requested on the outbound tool token, e.g. `stripe_mcp:invoke` |
+| `IDP_REQUIRED_AUDIENCE` | Expected `aud` on the **inbound** delegated token. That token is audienced to the gateway resource, so this is `google-agent-gateway` - not the MCP tool's audience |
 | `TOOL_URL` | The Stripe MCP tool's Cloud Run base URL |
 | `AUTHZ_DECISION_ENDPOINT` | PingOne Authorize decision endpoint URL |
 | `AUTHZ_CLIENT_ID` | Authorize worker app Client ID |

@@ -91,7 +91,11 @@ def _validate_user_token(token: str) -> dict:
 _client = agentplatform.Client(project=GC_PROJECT_ID, location=GC_REGION)
 _agent  = _client.agent_engines.get(name=AGENT_ENGINE_NAME)
 
-# user_sub → (session_id, last_token)
+# user_sub → (session_id, last_token). Deliberately in-memory: one lookup at
+# session creation, then the bridge reuses the cached pair. Agent Runtime's
+# sessions.list is quota-limited and flaky in this project, so the stateless
+# alternative (listing sessions per request) was tried and reverted 2026-09-07.
+# Accepted limitation: per-instance cache — scale-out would orphan sessions.
 _sessions: dict[str, tuple[str, str]] = {}
 
 
@@ -104,7 +108,9 @@ def _create_session(user_sub: str, user_token: str) -> str:
             session_state={"user_token": user_token},
         ),
     )
-    print(f"[bridge] session op done={op.done} response={op.response} error={op.error}", flush=True)
+    # Log only completion + session id; op.response contains session_state with
+    # the raw user token, which must never be logged.
+    print(f"[bridge] session op done={op.done} error={op.error}", flush=True)
     session_id = op.response.name.split("/")[-1]
     print(f"[bridge] created session_id={session_id}", flush=True)
     _sessions[user_sub] = (session_id, user_token)

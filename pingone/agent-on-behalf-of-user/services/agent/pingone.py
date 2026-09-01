@@ -70,7 +70,7 @@ def _exchange(user_token: str) -> tuple[str, int]:
     token = body.get("access_token", "")
     if not token:
         raise RuntimeError(f"no access_token in exchange response: {body}")
-    logging.info("[TOKEN:delegated:raw] %s", token)
+    logging.info("delegated token minted (ttl %ss)", body.get("expires_in", 300))
     return token, body.get("expires_in", 300)
 
 

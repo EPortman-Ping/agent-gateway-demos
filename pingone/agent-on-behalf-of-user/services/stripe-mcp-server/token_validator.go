@@ -25,17 +25,18 @@ var (
 
 const jwksTTL = 5 * time.Minute
 
-// validateToken verifies the bearer token's signature, iss, aud, and required scopes.
-func validateToken(bearerHeader string) error {
+// validateToken verifies the bearer token's signature, iss, aud, and required
+// scopes. On success it returns the parsed token so callers can log its claims.
+func validateToken(bearerHeader string) (jwt.Token, error) {
 	raw := strings.TrimPrefix(bearerHeader, "Bearer ")
 	raw = strings.TrimPrefix(raw, "bearer ")
 	if raw == "" {
-		return fmt.Errorf("missing bearer token")
+		return nil, fmt.Errorf("missing bearer token")
 	}
 
 	ks, err := getJWKS()
 	if err != nil {
-		return fmt.Errorf("jwks unavailable: %w", err)
+		return nil, fmt.Errorf("jwks unavailable: %w", err)
 	}
 
 	tok, err := jwt.Parse([]byte(raw),
@@ -43,11 +44,11 @@ func validateToken(bearerHeader string) error {
 		jwt.WithValidate(true),
 	)
 	if err != nil {
-		return fmt.Errorf("token signature or expiry invalid: %w", err)
+		return nil, fmt.Errorf("token signature or expiry invalid: %w", err)
 	}
 
 	if tok.Issuer() != idpIssuer {
-		return fmt.Errorf("unexpected issuer %q (want %q)", tok.Issuer(), idpIssuer)
+		return nil, fmt.Errorf("unexpected issuer %q (want %q)", tok.Issuer(), idpIssuer)
 	}
 
 	if mcpTokenAudience != "" {
@@ -59,7 +60,7 @@ func validateToken(bearerHeader string) error {
 			}
 		}
 		if !found {
-			return fmt.Errorf("token audience %v does not include %q", tok.Audience(), mcpTokenAudience)
+			return nil, fmt.Errorf("token audience %v does not include %q", tok.Audience(), mcpTokenAudience)
 		}
 	}
 
@@ -71,11 +72,11 @@ func validateToken(bearerHeader string) error {
 	}
 	for _, required := range requiredScopeList() {
 		if _, ok := grantedSet[required]; !ok {
-			return fmt.Errorf("token is missing required scope %q", required)
+			return nil, fmt.Errorf("token is missing required scope %q", required)
 		}
 	}
 
-	return nil
+	return tok, nil
 }
 
 func requiredScopeList() []string {
