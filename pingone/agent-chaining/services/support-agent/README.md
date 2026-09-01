@@ -1,25 +1,57 @@
 # Support Agent
 
-The user-facing agent in the Agent Chaining reference architecture. It delegates order-status requests to the Order Status Agent over A2A and does not call the order MCP server directly.
+An ADK agent deployed to **Agent Runtime**. It is the user-facing agent in the agent chain: it delegates order-status requests to the Order Status Agent over A2A and never calls the Order Status MCP Server directly.
+
+The Agent Bridge stores the user's PingOne login token in ADK session state, audienced to this agent's own PingOne resource (`support-agent`). The agent validates it independently (signature, issuer, audience, scope `support-agent:invoke`) before ever using it, then performs its own RFC 8693 exchange — using the user token as the subject and its own PingOne client as the actor — targeting the shared intermediate `ac-google-cloud-agent-gateway` audience. Agent Runtime routes the outbound A2A egress through the Agent Gateway, where the extension service performs the real exchange to the `order-status-agent` audience on top of this one.
 
 ## Configure
+
+**1. Create the agent's PingOne application**
+
+- **Name:** AC Support Agent
+- **Grant type:** Client Credentials and Token Exchange
+- Assign the `ac-google-cloud-agent-gateway` resource so it may request the `order-status:invoke` scope
+
+**2. Create the agent's PingOne resource**
+
+- **Resource Name / Audience:** `support-agent` (must match `SUPPORT_AGENT_AUDIENCE` exactly — it becomes the `aud` claim on the Chat UI's login token)
+- **Scope:** `support-agent:invoke`
+- **Attributes:**
+  - `sub` — Advanced Expression, `Required` left unchecked:
+    ```text
+    (#root.context.requestData.grantType == "client_credentials") ? "no-subject" : ((#root.context.requestData.grantType == "authorization_code") ? #root.user.id : #root.context.requestData.subjectToken.sub)
+    ```
+  - `act` — Advanced Expression, `Required` checked:
+    ```text
+    "noActor"
+    ```
+  - `may_act` — Advanced Expression:
+    ```text
+    {"sub":"<SUPPORT-AGENT-CLIENT-ID>"}
+    ```
+
+This resource sees exactly one real grant type — `authorization_code` at Chat UI login — so `sub` resolves via `#root.user.id` (the correct reference for the authenticated user on that grant; `subjectToken` is genuinely absent there), `act` is the plain constant `"noActor"` because no actor exists at login, and `may_act` is a flat constant licensing Support Agent as the sole actor allowed to exchange this token next (hop 1). Set it to this agent's PingOne client ID.
+
+**3. Fill in `.env`:**
 
 ```bash
 cp .env.sample .env
 ```
 
-| Variable | Purpose |
+| Variable | Value |
 |---|---|
-| `GC_PROJECT_ID` | Google Cloud project |
-| `GC_REGION` | Agent Runtime region |
-| `AGENT_DISPLAY_NAME` | Support Agent Reasoning Engine display name |
-| `GC_AGENT_GATEWAY` | Shared Agent-to-Anywhere gateway resource |
-| `A2A_ORDER_STATUS_AGENT_URL` | Order Status Agent A2A endpoint |
-| `A2A_ORDER_STATUS_SCOPE` | Delegated A2A scope |
-| `AGENT_GATEWAY_AUDIENCE` | Shared intermediate PingOne audience this agent's own exchange targets — the gateway extension performs the real exchange to `order-status-agent` on top of this one (see [the gateway extension's README](../agent-gateway-extension-service/README.md#pingone-resource-setup)) |
-| `AGENT_IDP_TOKEN_ENDPOINT` | PingOne token endpoint |
-| `AGENT_IDP_CLIENT_ID` | Support Agent exchange client |
-| `AGENT_IDP_CLIENT_SECRET` | Support Agent exchange secret |
+| `GC_PROJECT_ID` | Target project ID |
+| `GC_REGION` | Deploy region, e.g. `us-central1` |
+| `AGENT_DISPLAY_NAME` | Display name for the Reasoning Engine, e.g. `ac-support-agent` |
+| `GC_AGENT_GATEWAY` | Full gateway path: `projects/<id>/locations/<region>/agentGateways/<name>` |
+| `A2A_ORDER_STATUS_AGENT_URL` | The Order Status Agent's A2A endpoint: `https://<region>-aiplatform.mtls.googleapis.com/v1beta1/projects/<id>/locations/<region>/reasoningEngines/<engine-id>/a2a` |
+| `A2A_ORDER_STATUS_SCOPE` | Scope requested on the delegated A2A token (`order-status:invoke`) |
+| `SUPPORT_AGENT_AUDIENCE` | Expected `aud` on the inbound browser token (`support-agent`) |
+| `SUPPORT_AGENT_EXPECTED_SCOPE` | Expected scope on the inbound browser token (`support-agent:invoke`) |
+| `AGENT_GATEWAY_AUDIENCE` | Shared intermediate PingOne audience this agent's own exchange targets — must match the gateway extension's config |
+| `AGENT_IDP_TOKEN_ENDPOINT` | PingOne token endpoint, e.g. `https://auth.pingone.<region>/<env-id>/as/token` |
+| `AGENT_IDP_CLIENT_ID` | Agent's PingOne client ID |
+| `AGENT_IDP_CLIENT_SECRET` | Agent's PingOne client secret |
 
 ## Deploy
 
@@ -27,12 +59,6 @@ cp .env.sample .env
 make deploy
 ```
 
-`deploy.py` creates an Agent Runtime Reasoning Engine with `AGENT_IDENTITY` and binds it to the shared Agent Gateway. `teardown.py` removes engines matching `AGENT_DISPLAY_NAME`.
+`deploy.py` creates the Reasoning Engine with `identity_type = AGENT_IDENTITY`, binds it to the gateway, and grants `roles/iap.egressor` on the Agent Registry so the engine can reach all registered endpoints.
 
-Local mode is explicitly development-only. Set `LOCAL_DELEGATION_MODE=false` and configure the PingOne values for a real RFC 8693 exchange.
-
-## PingOne application grant (critical, easy to get backwards)
-
-This agent doesn't own a PingOne resource of its own — it only needs `Client Credentials` + `Token Exchange` grants on its own application (client ID `2fe7b82c-8739-420c-8790-401d4a6c2065`). But **which resource's copy of `order-status:invoke` that application is granted matters more than it looks**: it must be granted the scope **from `ac-google-cloud-agent-gateway`**, not from `order-status-agent` — even though `order-status-agent` is the resource this agent's `.env` (`A2A_ORDER_STATUS_SCOPE`) and its own exchange call ultimately talk to. `order-status:invoke` exists as two separate scope objects with the same name, one per resource; check under **Applications → AC Support Agent → Resources** in the console directly.
-
-Getting this backwards doesn't produce an error anywhere obvious: this agent's own `client_credentials` actor-token fetch still "succeeds" (just audienced to whichever resource the grant actually points at), and its `pingone.py::get_delegated_token` exchange call — which explicitly sets `audience=ac-google-cloud-agent-gateway` — silently resolves to the wrong resource instead of honoring the requested `audience`. The failure only surfaces one hop later, at the gateway extension, as `act is configured as required for the Access token but does not have a value`. See [CLAUDE.md](../../CLAUDE.md#pingone-client-scope-requirements-critical-non-obvious) for the full explanation.
+![Support Agent Registry Config](../../../../_docs/agent-chaining/support-agent-config.png)

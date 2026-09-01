@@ -33,6 +33,11 @@ GC_REGION         = os.environ["GC_REGION"]
 AGENT_ENGINE_NAME = os.environ["AGENT_ENGINE_NAME"]
 CORS_ORIGIN       = os.environ["CORS_ORIGIN"]
 PINGONE_ISSUER    = os.environ["PINGONE_ISSUER"].rstrip("/")
+# The browser's PKCE login token is audienced to Support Agent's own PingOne
+# resource (see agent-chaining/CLAUDE.md's PingOne setup section) — enforced
+# here at the front door, and independently re-checked inside Support Agent
+# itself before it's ever used as a token-exchange subject_token.
+EXPECTED_AUDIENCE = os.environ.get("EXPECTED_AUDIENCE", "support-agent")
 
 JWKS_URI = f"{PINGONE_ISSUER}/jwks"
 
@@ -77,7 +82,7 @@ def _validate_user_token(token: str) -> dict:
             public_key,
             algorithms=["RS256", "ES256"],
             issuer=PINGONE_ISSUER,
-            options={"verify_aud": False},
+            audience=EXPECTED_AUDIENCE,
         )
     except JWTError as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")

@@ -5,3 +5,4 @@ python-dotenv
 cloudpickle
 pydantic
 httpx
+python-jose[cryptography]

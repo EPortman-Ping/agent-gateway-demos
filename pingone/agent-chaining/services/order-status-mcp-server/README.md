@@ -7,7 +7,7 @@ An MCP server exposing a `get_order_status` tool. Deployed on Cloud Run and regi
 ### 1. Create the Order Status MCP Server Resource in PingOne
 
 In PingOne, create a **Resource** named `AC Order Status MCP Server` with the `order:read` scope and `order-status-mcp-server` audience.
-![Order Status MCP Server Resource Config]()
+![Order Status MCP Server Resource Config](../../../../_docs/agent-chaining/pingone/order-status-mcp-server-resource-config.png)
 
 ### 2. Make this resource prove who delegated to whom (`act` claim)
 
@@ -17,13 +17,13 @@ On the `AC Order Status MCP Server` resource, go to the **Attributes** tab and c
    ```text
    (#root.context.requestData.grantType == "client_credentials") ? "no-subject" : #root.context.requestData.subjectToken.sub
    ```
-   The `subjectToken.sub` half carries the subject token's `sub` through to the exchanged token, so the customer's identity survives this hop. **The `client_credentials` branch is required, not optional**: the gateway extension's own actor-token fetch for the `order:read` scope is a plain `client_credentials` request against this same resource, and that grant type has no `subjectToken` — leaving this expression as `#root.context.requestData.subjectToken.sub` alone 400s that call with `sub is configured as required for the Access token but does not have a value`, which blocks the entire MCP hop.
+   On a token exchange, this populates the issued token's `sub` with the subject token's `sub` (the user's identity, carried through the hop); on a `client_credentials` request (the gateway extension's own actor-token fetch, which has no user), it stamps the literal string `no-subject` instead, since there is no subject token to copy from.
 
-2. **`act`** — click **Add**, name it `act`, open its Advanced Expressions, and enter:
+2. **`act`** — click **Add**, name it `act`, check **Required**, open its Advanced Expressions, and enter:
    ```text
-   (#root.context.requestData.grantType == "client_credentials")?"noActor":((#root.context.requestData.subjectToken.may_act.sub == #root.context.requestData.actorToken.client_id)?#root.context.requestData.subjectToken.may_act:null)
+   (#root.context.requestData.grantType == "client_credentials")?"noActor":((#root.context.requestData.subjectToken.may_act.sub == #root.context.requestData.actorToken.client_id)?{"sub":#root.context.requestData.actorToken.client_id,"act":#root.context.requestData.subjectToken.act}:null)
    ```
-   Check **Required**. `client_credentials` requests (each service minting its own actor token) get `noActor`. Token-exchange requests get the subject token's `may_act` value only if it names the current actor — otherwise `null`, which fails the exchange closed instead of issuing an unproven delegation.
+   On a `client_credentials` request (the gateway extension's own actor-token fetch, where no delegation is involved), it stamps the hard-coded value `noActor`; on a token exchange, it sets `act` only if the subject token's `may_act` matches the actor token's `client_id` — wrapping the actor's identity around the subject token's existing `act` when they match, or returning `null` when they don't, which fails the exchange outright since `act` is marked **Required**.
 
 ### 3. Configure environment values
 
@@ -56,4 +56,4 @@ Register the server in the Agent Registry (Agent Platform → Govern → Agent R
 - **MCP Server URL:** `<Cloud Run service URL>/mcp`
 - **Tool specification JSON:** Paste the contents of `tool-spec.json`
 
-![Order Status MCP Server GCP Config]()
+![Order Status MCP Server GCP Config](../../../../_docs/agent-chaining/order-status-mcp-server-gcp-config.png)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from typing import Any
 from uuid import uuid4
 
 import httpx
@@ -11,10 +12,60 @@ from google.adk.agents import Agent
 from google.adk.tools import FunctionTool
 from google.adk.tools.tool_context import ToolContext
 from google.genai import types as genai_types
+from jose import JWTError, jwk, jwt
 
 from pingone import get_delegated_token
 
 ORDER_STATUS_AGENT_URL = os.environ["A2A_ORDER_STATUS_AGENT_URL"]
+
+# Inbound validation of the browser's own PKCE login token — audienced to
+# this agent's own PingOne resource (see CLAUDE.md's PingOne setup section).
+# Agent Bridge already validates this token before storing it in session
+# state; this is an independent re-check, matching the defense-in-depth
+# pattern every other hop in this journey uses (the extension validates,
+# then the target it forwards to validates again).
+EXPECTED_AUDIENCE = os.environ.get("SUPPORT_AGENT_AUDIENCE", "support-agent")
+EXPECTED_SCOPE = os.environ.get("SUPPORT_AGENT_EXPECTED_SCOPE", "support-agent:invoke")
+ISSUER = os.environ.get("AGENT_IDP_TOKEN_ENDPOINT", "").removesuffix("/token").rstrip("/")
+JWKS_URL = f"{ISSUER}/jwks" if ISSUER else ""
+
+_jwks: dict[str, Any] | None = None
+
+
+def _jwks_keys() -> dict[str, Any]:
+    global _jwks
+    if _jwks is None:
+        response = httpx.get(JWKS_URL, timeout=10)
+        response.raise_for_status()
+        _jwks = response.json()
+    return _jwks
+
+
+def _validate_user_token(token: str) -> dict[str, Any]:
+    """Validate the browser's PingOne login token before using it as a subject token."""
+    if not token:
+        raise ValueError("user token is required")
+    try:
+        header = jwt.get_unverified_header(token)
+        key_data = next(
+            key for key in _jwks_keys().get("keys", []) if key.get("kid") == header.get("kid")
+        )
+        algorithm = header.get("alg") or ("ES256" if key_data.get("kty") == "EC" else "RS256")
+        claims = jwt.decode(
+            token,
+            jwk.construct(key_data, algorithm=algorithm),
+            algorithms=[algorithm],
+            issuer=ISSUER,
+            audience=EXPECTED_AUDIENCE,
+        )
+    except (JWTError, StopIteration, KeyError, ValueError) as exc:
+        raise ValueError("invalid user token") from exc
+    if not claims.get("sub"):
+        raise ValueError("user token is missing sub")
+    scopes = set(str(claims.get("scope", "")).split())
+    if EXPECTED_SCOPE not in scopes:
+        raise ValueError("user token scope mismatch")
+    return claims
 
 
 def get_order_status(order_id: str, tool_context: ToolContext) -> dict:
@@ -27,6 +78,12 @@ def get_order_status(order_id: str, tool_context: ToolContext) -> dict:
         return {
             "error": "Invalid order ID. Please use the format ORD-123, for example ORD-123 or ORD-456."
         }
+
+    try:
+        _validate_user_token(user_token)
+    except ValueError as exc:
+        print(f"[support-agent] inbound token rejected: {exc}", flush=True)
+        return {"error": f"unauthorized: {exc}"}
 
     try:
         delegated = get_delegated_token(user_token)

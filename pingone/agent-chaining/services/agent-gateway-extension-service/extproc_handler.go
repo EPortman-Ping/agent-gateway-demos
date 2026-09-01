@@ -11,6 +11,11 @@ import (
 	"strings"
 	"time"
 
+	// The runtime image is distroless (no OS tzdata) and the business-hours
+	// policy must be evaluated against business-local hours, not UTC — so the
+	// zone database ships inside the binary.
+	_ "time/tzdata"
+
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"google.golang.org/grpc/codes"
@@ -53,7 +58,7 @@ type shimConfig struct {
 	a2aURL, a2aAudience, a2aScope, a2aActor                    string
 	mcpURL, mcpAudience, mcpScope, mcpActor                    string
 	idpEndpoint, idpClientID, idpSecret                        string
-	authzEndpoint, authzClientID, authzClientSecret, authzMode string
+	authzEndpoint, authzClientID, authzClientSecret string
 }
 
 func newShim(cfg shimConfig) (*shim, error) {
@@ -86,24 +91,33 @@ func newShim(cfg shimConfig) (*shim, error) {
 	if err != nil {
 		return nil, err
 	}
-	if cfg.authzMode != "permit-all" && (cfg.authzEndpoint == "" || cfg.authzClientID == "" || cfg.authzClientSecret == "") {
-		return nil, fmt.Errorf("PingOne Authorize configuration is required unless AUTHZ_MODE=permit-all")
+	// PingOne Authorize is mandatory — there is no bypass. Every tools/call
+	// and A2A message:send is evaluated against the decision endpoint, and any
+	// configuration gap or decision error fails closed (DENY), never open.
+	if cfg.authzEndpoint == "" || cfg.authzClientID == "" || cfg.authzClientSecret == "" {
+		return nil, fmt.Errorf("PingOne Authorize configuration is required (AUTHZ_DECISION_ENDPOINT, AUTHZ_CLIENT_ID, AUTHZ_CLIENT_SECRET)")
 	}
 	googleAuth, err := newGoogleTokenSource(context.Background(), "https://www.googleapis.com/auth/cloud-platform")
 	if err != nil {
 		return nil, fmt.Errorf("google credentials: %w", err)
 	}
+	authz := &pingoneAuthorizeClient{
+		decisionEndpoint: cfg.authzEndpoint,
+		tokenEndpoint:    cfg.idpEndpoint,
+		clientID:         cfg.authzClientID,
+		clientSecret:     cfg.authzClientSecret,
+	}
 	return &shim{
 		targets:    []targetConfig{a2a, mcp},
 		idp:        newIDPClient(cfg.idpEndpoint, cfg.idpClientID, cfg.idpSecret),
-		authz:      &pingoneAuthorizeClient{},
+		authz:      authz,
 		googleAuth: googleAuth,
 	}, nil
 }
 
 func (s *shim) Process(stream extprocv3.ExternalProcessor_ProcessServer) error {
 	var target *targetConfig
-	var subject, actor, bodyToken string
+	var subject, bodyToken string
 	for {
 		req, err := stream.Recv()
 		if err == io.EOF {
@@ -115,9 +129,9 @@ func (s *shim) Process(stream extprocv3.ExternalProcessor_ProcessServer) error {
 		var resp *extprocv3.ProcessingResponse
 		switch v := req.Request.(type) {
 		case *extprocv3.ProcessingRequest_RequestHeaders:
-			resp, target, subject, actor, bodyToken = s.onHeaders(stream.Context(), v.RequestHeaders)
+			resp, target, subject, bodyToken = s.onHeaders(stream.Context(), v.RequestHeaders)
 		case *extprocv3.ProcessingRequest_RequestBody:
-			resp = s.onBody(v, target, subject, actor, bodyToken)
+			resp = s.onBody(v, target, subject, bodyToken)
 		case *extprocv3.ProcessingRequest_ResponseHeaders:
 			resp = ackResponseHeaders()
 		case *extprocv3.ProcessingRequest_ResponseBody:
@@ -147,45 +161,42 @@ func (s *shim) targetFor(authority, path string) *targetConfig {
 // API's own IAM check. It returns the reminted token separately (bodyToken)
 // so onBody can place it in the request body for dualAuth targets, since a
 // custom header added here was observed not to reach the downstream agent.
-func (s *shim) onHeaders(ctx context.Context, msg *extprocv3.HttpHeaders) (*extprocv3.ProcessingResponse, *targetConfig, string, string, string) {
+func (s *shim) onHeaders(ctx context.Context, msg *extprocv3.HttpHeaders) (*extprocv3.ProcessingResponse, *targetConfig, string, string) {
 	authority, path := headerValue(msg.Headers, ":authority"), headerValue(msg.Headers, ":path")
 	target := s.targetFor(authority, path)
 	log.Printf("[ExtSvc] onHeaders authority=%q path=%q matched=%v", authority, path, target != nil)
 	if target == nil {
-		return passthroughHeaders(), nil, "", "", ""
+		return passthroughHeaders(), nil, "", ""
 	}
 	bearer := strings.TrimPrefix(headerValue(msg.Headers, "authorization"), "Bearer ")
 	if bearer == "" {
-		return denyUnauthorized("bearer token required"), target, "", "", ""
+		return denyUnauthorized("bearer token required"), target, "", ""
 	}
 	if err := target.validator.verify(ctx, bearer); err != nil {
-		return denyUnauthorized("invalid delegated token"), target, "", "", ""
+		return denyUnauthorized("invalid delegated token"), target, "", ""
 	}
 	subject := jwtClaim(bearer, "sub")
-	// Plumbing mode intentionally validates only audience and scope. Actor
-	// enforcement is added with the real authorization policy in the next phase.
-	actor := "delegated-agent"
 
 	reminted, err := s.idp.exchangeForTarget(bearer, target.name, target.exchangeAudience, target.scope)
 	if err != nil {
 		log.Printf("[ExtSvc] target=%s token exchange failed: %v", target.name, err)
-		return denyForbidden("token exchange failed"), target, "", "", ""
+		return denyForbidden("token exchange failed"), target, "", ""
 	}
 
 	if target.dualAuth {
 		googleTok, err := s.googleAuth.Token()
 		if err != nil {
 			log.Printf("[ExtSvc] target=%s google credential error: %v", target.name, err)
-			return denyForbidden("upstream credential error"), target, "", "", ""
+			return denyForbidden("upstream credential error"), target, "", ""
 		}
-		log.Printf("[ExtSvc] target=%s protocol=%s subject=%s actor=%s (google-auth+remint)", target.name, target.protocol, subject, actor)
-		return injectGoogleAuth(googleTok), target, subject, actor, reminted
+		log.Printf("[ExtSvc] target=%s protocol=%s subject=%s (google-auth+remint)", target.name, target.protocol, subject)
+		return injectGoogleAuth(googleTok), target, subject, reminted
 	}
-	log.Printf("[ExtSvc] target=%s protocol=%s subject=%s actor=%s", target.name, target.protocol, subject, actor)
-	return injectAuthAndRequestBody(reminted), target, subject, actor, ""
+	log.Printf("[ExtSvc] target=%s protocol=%s subject=%s", target.name, target.protocol, subject)
+	return injectAuthAndRequestBody(reminted), target, subject, ""
 }
 
-func (s *shim) onBody(b *extprocv3.ProcessingRequest_RequestBody, target *targetConfig, subject, actor, bodyToken string) *extprocv3.ProcessingResponse {
+func (s *shim) onBody(b *extprocv3.ProcessingRequest_RequestBody, target *targetConfig, subject, bodyToken string) *extprocv3.ProcessingResponse {
 	if target == nil {
 		return echoRequestBody(b.RequestBody)
 	}
@@ -194,11 +205,12 @@ func (s *shim) onBody(b *extprocv3.ProcessingRequest_RequestBody, target *target
 	if !ok {
 		return denyForbidden("unsupported request")
 	}
-	permitted, err := s.authz.Decide(subject, actor, action, 0, currentHour())
+	permitted, err := s.authz.Decide(subject, currentHour())
 	if err != nil || !permitted {
+		log.Printf("[ExtSvc] DENY target=%s action=%s err=%v permitted=%v", target.name, action, err, permitted)
 		return denyForbidden("request denied by policy")
 	}
-	log.Printf("[ExtSvc] PERMIT target=%s action=%s order=%s", target.name, action, orderID)
+	log.Printf("[ExtSvc] PERMIT target=%s action=%s order=%s (authz=pingone-authorize)", target.name, action, orderID)
 	if bodyToken != "" {
 		mutated, err := setDelegatedAuthorizationInBody(body, bodyToken)
 		if err != nil {
@@ -288,4 +300,16 @@ func jwtClaim(token, claim string) string {
 	v, _ := c[claim].(string)
 	return v
 }
-func currentHour() int { return time.Now().Hour() }
+// currentHour returns the current hour in the business timezone (America/
+// Vancouver here, matching the PingOne Authorize business-hours rule). The
+// distroless runtime has no OS tzdata, hence the embedded database above.
+func currentHour() int {
+	loc, err := time.LoadLocation("America/Vancouver")
+	if err != nil {
+		// Fail closed: an unresolvable zone is not a reason to send the policy
+		// an hour it will read as in-hours. -1 can never fall inside 8..17.
+		log.Printf("[ExtSvc] timezone load failed: %v — sending hour -1 (policy will deny)", err)
+		return -1
+	}
+	return time.Now().In(loc).Hour()
+}

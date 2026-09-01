@@ -1,27 +1,61 @@
 # Order Status Agent
 
-The specialized downstream agent in the Agent Chaining reference architecture. It receives `get_order_status` requests from the Support Agent over A2A and is the only agent allowed to call the Order Status MCP Server.
+An ADK agent deployed to **Agent Runtime** with native A2A support. It is the specialized downstream agent in the agent chain: it receives `get_order_status` requests from the Support Agent over A2A and is the only agent allowed to call the Order Status MCP Server.
+
+The gateway extension delivers each A2A message with a delegated token in `metadata.delegatedAuthorization`. The agent validates it independently (signature, issuer, audience `order-status-agent`, scope `order-status:invoke`), then performs its own RFC 8693 exchange — using that token as the subject and its own PingOne client as the actor — targeting the shared intermediate `ac-google-cloud-agent-gateway` audience. Agent Runtime routes the outbound MCP egress through the Agent Gateway, where the extension service performs the final exchange to the `order-status-mcp-server` audience on top of this one.
 
 ## Configure
+
+**1. Create the agent's PingOne application**
+
+- **Name:** AC Order Status Agent
+- **Grant type:** Client Credentials and Token Exchange
+- Assign the `ac-google-cloud-agent-gateway` resource so it may request the `order:read` scope
+
+![Order Status Agent PingOne Config](../../../../_docs/agent-chaining/pingone/order-status-agent-config.png)
+
+**2. Create the agent's PingOne resource**
+
+- **Resource Name:** `AC Order Status Agent`
+- **Audience:** `order-status-agent`
+- **Scope:** `order-status:invoke`
+- **Attributes:**
+  - `sub` — Advanced Expression, `Required` left unchecked:
+    ```text
+    (#root.context.requestData.grantType == "client_credentials") ? "no-subject" : #root.context.requestData.subjectToken.sub
+    ```
+  - `act` — Advanced Expression, `Required` checked:
+    ```text
+    (#root.context.requestData.grantType == "client_credentials")?"noActor":((#root.context.requestData.subjectToken.may_act.sub == #root.context.requestData.actorToken.client_id)?{"sub":#root.context.requestData.actorToken.client_id,"act":#root.context.requestData.subjectToken.act}:null)
+    ```
+  - `may_act` — Advanced Expression:
+    ```text
+    {"sub":"<ORDER-STATUS-AGENT-CLIENT-ID>"}
+    ```
+
+Only the gateway extension ever mints against this resource: its A2A-hop remint (hop 2, token exchange) and its own `client_credentials` actor-token fetch for the A2A scope. The `act` expression nests the subject token's own `act` one level deeper so the delegation history survives the remint, and fails the exchange closed if the subject token's `may_act` doesn't name the exchanging actor. `may_act` is a flat constant naming Order Status Agent as the sole next actor — this is what lets hop 3 (this agent's own exchange, targeting the shared gateway audience) carry a valid `act` claim. Set it to this agent's PingOne client ID.
+
+**3. Fill in `.env`:**
 
 ```bash
 cp .env.sample .env
 ```
 
-| Variable | Purpose |
+| Variable | Value |
 |---|---|
-| `GC_PROJECT_ID` | Google Cloud project |
-| `GC_REGION` | Agent Runtime region |
-| `AGENT_DISPLAY_NAME` | Order Status Agent Reasoning Engine display name |
-| `GC_AGENT_GATEWAY` | Shared Agent-to-Anywhere gateway resource |
-| `A2A_ORDER_STATUS_AUDIENCE` | This agent's token audience |
-| `A2A_ORDER_STATUS_SCOPE` | Scope accepted from Support Agent |
-| `MCP_ORDER_STATUS_SERVER_URL` | Order Status MCP Server endpoint |
-| `MCP_ORDER_STATUS_SCOPE` | Scope requested for the MCP hop |
-| `AGENT_GATEWAY_AUDIENCE` | Shared intermediate PingOne audience this agent's own exchange targets — the gateway extension performs the real exchange to `order-status-mcp-server` on top of this one |
-| `AGENT_IDP_TOKEN_ENDPOINT` | PingOne token endpoint |
-| `AGENT_IDP_CLIENT_ID` | Order Status Agent exchange client |
-| `AGENT_IDP_CLIENT_SECRET` | Order Status Agent exchange secret |
+| `GC_PROJECT_ID` | Target project ID |
+| `GC_REGION` | Deploy region, e.g. `us-central1` |
+| `AGENT_DISPLAY_NAME` | Display name for the Reasoning Engine, e.g. `ac-order-status-agent` |
+| `GC_AGENT_GATEWAY` | Full gateway path: `projects/<id>/locations/<region>/agentGateways/<name>` |
+| `A2A_ORDER_STATUS_AUDIENCE` | Audience accepted on the inbound A2A token (`order-status-agent`) |
+| `A2A_ORDER_STATUS_SCOPE` | Scope accepted on the inbound A2A token (`order-status:invoke`) |
+| `MCP_ORDER_STATUS_SERVER_URL` | The Order Status MCP Server's `/mcp` endpoint |
+| `MCP_ORDER_STATUS_SCOPE` | Scope requested on the MCP hop (`order:read`) |
+| `ORDER_STATUS_AGENT_ID` | Agent identifier, e.g. `order-status-agent` |
+| `AGENT_GATEWAY_AUDIENCE` | Shared intermediate PingOne audience this agent's own exchange targets — must match the gateway extension's config |
+| `AGENT_IDP_TOKEN_ENDPOINT` | PingOne token endpoint, e.g. `https://auth.pingone.<region>/<env-id>/as/token` |
+| `AGENT_IDP_CLIENT_ID` | Agent's PingOne client ID |
+| `AGENT_IDP_CLIENT_SECRET` | Agent's PingOne client secret |
 
 ## Deploy
 
@@ -29,56 +63,6 @@ cp .env.sample .env
 make deploy
 ```
 
-The agent uses the same `agent.py`, `pingone.py`, `deploy.py`, `teardown.py`, and `Makefile` shape as the existing Agent Runtime demos. Its MCP token must be audience-bound to the Order Status MCP Server and scoped only to `order:read`.
+`deploy.py` creates the Reasoning Engine with `identity_type = AGENT_IDENTITY`, binds it to the gateway, and grants `roles/iap.egressor` on the Agent Registry so the engine can reach all registered endpoints.
 
-## PingOne resource setup
-
-`A2A_ORDER_STATUS_AUDIENCE`/`A2A_ORDER_STATUS_SCOPE` above only work once a matching custom resource exists in PingOne — this agent never creates it, it only validates tokens against whatever PingOne has already issued. This resource is also where the RFC 8693 `act` (actor) claim gets configured; without it, the delegated token this agent validates carries no proof of who it came from (see [CLAUDE.md](../../CLAUDE.md) for the full explanation). This agent's own *outbound* exchange (to call the MCP server) targets a separate, shared intermediate resource — see the gateway extension's README, linked at the bottom of this section.
-
-As a PingOne administrator, add a custom resource for the Order Status Agent:
-
-**Create Resource Profile**
-
-1. In the PingOne admin console, go to **Applications > Resources** and click the **+** icon.
-2. For **Resource Name**, enter `order-status-agent`.
-3. For **Audience**, enter `order-status-agent` (this becomes the `aud` claim on every token minted against this resource, and must match `A2A_ORDER_STATUS_AUDIENCE` above exactly).
-4. (Optional) For **Description**, enter a brief description of the resource.
-5. For **Access token time to live**, leave the default or edit as needed.
-6. Click **Next**.
-
-**Attributes** — this is where the resource proves *who delegated to whom*. Token exchange works without it, but nothing would stop a caller from presenting an `actor_token` and having it accepted at face value; these attributes make PingOne itself attest to the actor, and refuse to mint a token if the actor isn't the one the subject token actually authorized (see [CLAUDE.md](../../CLAUDE.md) for why this lives on the resource, not the client).
-
-1. Click the gear icon next to the `sub` attribute to open the Advanced Expressions modal.
-2. Enter the following and click **Save**:
-   ```text
-   (#root.context.requestData.grantType == "client_credentials") ? "no-subject" : #root.context.requestData.subjectToken.sub
-   ```
-   The `subjectToken.sub` half is what keeps the customer's identity intact through both exchanges on this resource — without it, `sub` on the exchanged token could default to something other than the original user. **The `client_credentials` branch is not optional**: the gateway extension's own actor-token fetch for the A2A scope (`order-status:invoke`) is a plain `client_credentials` request against this same resource, and a `client_credentials` grant has no `subjectToken` at all — leaving this expression unconditional 400s that call with `sub is configured as required for the Access token but does not have a value`, which then blocks every hop after it.
-3. Click **Add** to add another attribute. In the **Attribute** field, enter `act`, then click the gear icon to open the Advanced Expressions modal.
-4. Enter the following, click **Save**, and select the checkbox to make `act` **required**:
-   ```text
-   (#root.context.requestData.grantType == "client_credentials")?"noActor":((#root.context.requestData.subjectToken.may_act.sub == #root.context.requestData.actorToken.client_id)?#root.context.requestData.subjectToken.may_act:null)
-   ```
-   Same logic as every other resource in this demo: `client_credentials` requests (each service minting its own actor token) get `noActor`; token-exchange requests get the subject token's `may_act` value only if it names the current actor, otherwise `null` — which fails the exchange closed rather than issuing an unproven delegation.
-5. Click **Add** again. In the **Attribute** field, enter `may_act`, then click the gear icon to open the Advanced Expressions modal.
-6. Enter the following and click **Save**:
-   ```text
-   (#root.context.requestData.grantType == "authorization_code")
-     ? {"sub":"2fe7b82c-8739-420c-8790-401d4a6c2065"}
-     : {"sub":"6f716c87-e33d-4981-b632-6dd357f03f14"}
-   ```
-   This resource mints tokens at **two** points, each needing to license a different next actor:
-   - At login (`authorization_code` grant, the Chat UI's own token): the only allowed next actor is Support Agent (`2fe7b82c-...`) — this is what lets Support Agent's own exchange (hop 1, which targets the shared `ac-google-cloud-agent-gateway` audience, not this resource) get a valid `act` claim.
-   - Anything else minted here is the gateway extension's own remint (hop 2, which *does* target this resource): the only allowed next actor is Order Status Agent itself (`6f716c87-...`) — needed for hop 3, which reads `may_act` off the token this resource just minted, even though hop 3 targets the shared gateway audience again, not this resource.
-7. Click **Next**.
-
-**Scopes**
-
-1. Click **Add Scope**.
-2. For **Scope Name**, enter `order-status:invoke`.
-3. (Optional) Enter a **Description**.
-4. Click **Save**.
-
-See [the gateway extension's README](../agent-gateway-extension-service/README.md#pingone-resource-setup) for the shared intermediate `ac-google-cloud-agent-gateway` resource both agents' own exchanges target, [order-status-mcp-server's README](../order-status-mcp-server/README.md#pingone-resource-setup) for the final MCP-hop resource, and [CLAUDE.md](../../CLAUDE.md) for how to verify the full 4-hop `act` chain once all three are configured.
-
-**Critical, easy to get backwards:** this agent's own PingOne *application* (client ID `6f716c87-e33d-4981-b632-6dd357f03f14`) must be granted the `order:read` scope **from the `ac-google-cloud-agent-gateway` resource**, not from `order-status-mcp-server` — even though `order-status-mcp-server` is the resource this agent's `.env` (`MCP_ORDER_STATUS_SCOPE`) and its own exchange call ultimately care about. `order:read` exists as two separate scope objects with the same name, one per resource; PingOne only lets an application hold one copy at a time. Granting the wrong copy doesn't error anywhere — the `client_credentials` actor-token fetch still "succeeds" (just against the wrong resource), and this agent's own token-exchange call (which explicitly sets `audience=ac-google-cloud-agent-gateway`) silently resolves to whichever resource the grant actually points at instead, ignoring the requested audience. The failure only shows up one hop later, as the extension's MCP-hop exchange 400ing with `act is configured as required... does not have a value`. Check **Applications → Order Status Agent → Resources** in the console directly — don't infer this from `.env` alone.
+![Order Status Agent Registry Config](../../../../_docs/agent-chaining/order-status-agent-config.png)
